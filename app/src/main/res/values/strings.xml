@@ -1,0 +1,4 @@
+<resources>
+    <string name="app_name">Pixel Shade</string>
+    <string name="accessibility_description">Lets Pixel Shade support replacement shade gestures and fallback system actions.</string>
+</resources>
