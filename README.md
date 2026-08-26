@@ -11,3 +11,5 @@ Goals:
 - AccessibilityService fallback/gesture support
 - Shizuku / Shizuku+ privileged backend
 - One APK, no PowerUserHub dependency
+
+The `main` branch builds the standalone debug APK through GitHub Actions.
