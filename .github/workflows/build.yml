@@ -1,0 +1,80 @@
+name: Pixel Shade Android CI
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pixel-shade-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Checkout Pixel Shade
+        uses: actions/checkout@v7
+
+      - name: Checkout Shizuku Plus API
+        uses: actions/checkout@v7
+        with:
+          repository: thejaustin/ShizukuPlus-API
+          ref: master
+          path: .ci/ShizukuPlus-API
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v5
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v6
+        with:
+          gradle-version: '9.1.0'
+
+      - name: Limit upstream to client API modules
+        working-directory: .ci/ShizukuPlus-API
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('settings.gradle')
+          s = p.read_text()
+          s = s.replace('include ":aidl", ":shared", ":api", ":provider", ":rish"', 'include ":aidl", ":shared", ":api", ":provider"')
+          s = s.replace('include ":demo", ":demo-hidden-api-stub"', '')
+          s = s.replace('include ":server-shared"', '')
+          p.write_text(s)
+          PY
+
+      - name: Build Shizuku Plus client AARs
+        working-directory: .ci/ShizukuPlus-API
+        run: |
+          chmod +x gradlew
+          ./gradlew --no-daemon :aidl:assembleRelease :shared:assembleRelease :api:assembleRelease :provider:assembleRelease --stacktrace
+
+      - name: Stage Shizuku Plus AARs
+        run: |
+          mkdir -p app/libs
+          cp .ci/ShizukuPlus-API/aidl/build/outputs/aar/aidl-release.aar app/libs/shizuku-plus-aidl.aar
+          cp .ci/ShizukuPlus-API/shared/build/outputs/aar/shared-release.aar app/libs/shizuku-plus-shared.aar
+          cp .ci/ShizukuPlus-API/api/build/outputs/aar/api-release.aar app/libs/shizuku-plus-api.aar
+          cp .ci/ShizukuPlus-API/provider/build/outputs/aar/provider-release.aar app/libs/shizuku-plus-provider.aar
+
+      - name: Build standalone Pixel Shade APK
+        run: gradle --no-daemon :app:assembleDebug --stacktrace
+
+      - name: Upload Pixel Shade APK
+        if: success()
+        uses: actions/upload-artifact@v7
+        with:
+          name: Pixel-Shade-debug-apk
+          path: app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 30
