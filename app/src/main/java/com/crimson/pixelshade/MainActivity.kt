@@ -2,6 +2,7 @@ package com.crimson.pixelshade
 
 import android.Manifest
 import android.content.ComponentName
+import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
@@ -42,7 +43,7 @@ class MainActivity : ComponentActivity() {
 @Composable
 private fun PixelShadeRoot() {
     val context = LocalContext.current
-    val prefs = remember { context.getSharedPreferences(PREFS_NAME, MODE_PRIVATE) }
+    val prefs = remember { context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE) }
     var themeMode by remember {
         mutableStateOf(
             runCatching { ThemeMode.valueOf(prefs.getString(PREF_THEME_MODE, ThemeMode.SYSTEM.name)!!) }
