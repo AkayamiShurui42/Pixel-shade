@@ -38,7 +38,7 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v6
         with:
-          gradle-version: '9.1.0'
+          gradle-version: '9.3.1'
 
       - name: Limit upstream to client API modules
         working-directory: .ci/ShizukuPlus-API
