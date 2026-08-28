@@ -124,9 +124,8 @@ class PixelShadeAccessibilityService : AccessibilityService() {
 
     private fun openShade() {
         if (PixelShadeConfig.suppressStockShade(this)) requestCollapse()
-        startActivity(Intent(this, MainActivity::class.java)
-            .putExtra("open_shade_preview", true)
-            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP))
+        startActivity(Intent(this, PixelShadePanelActivity::class.java)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_NO_ANIMATION))
     }
 
     override fun onDestroy() {
