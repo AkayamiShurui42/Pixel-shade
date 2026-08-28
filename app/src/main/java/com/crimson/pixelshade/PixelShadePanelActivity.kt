@@ -1,7 +1,5 @@
 package com.crimson.pixelshade
 
-import android.app.Activity
-import android.content.ComponentName
 import android.content.Intent
 import android.os.Bundle
 import android.provider.Settings
@@ -40,12 +38,8 @@ class PixelShadePanelActivity : ComponentActivity() {
         window.statusBarColor = android.graphics.Color.TRANSPARENT
         window.navigationBarColor = android.graphics.Color.TRANSPARENT
         setContent {
-            val scheme = if (android.os.Build.VERSION.SDK_INT >= 31) {
-                dynamicDarkColorScheme(this)
-            } else darkColorScheme()
-            MaterialTheme(colorScheme = scheme) {
-                PixelShadePanel(onDismiss = { finish() })
-            }
+            val scheme = if (android.os.Build.VERSION.SDK_INT >= 31) dynamicDarkColorScheme(this) else darkColorScheme()
+            MaterialTheme(colorScheme = scheme) { PixelShadePanel(onDismiss = { finish() }) }
         }
     }
 }
@@ -62,27 +56,23 @@ private fun PixelShadePanel(onDismiss: () -> Unit) {
     }
     val time = remember { SimpleDateFormat("h:mm", Locale.getDefault()).format(Date()) }
     val date = remember { SimpleDateFormat("EEE, MMM d", Locale.getDefault()).format(Date()) }
-
     val systemTiles = remember {
         listOf(
             SystemTile("Internet", Icons.Default.Wifi, Intent(Settings.ACTION_WIRELESS_SETTINGS)),
             SystemTile("Bluetooth", Icons.Default.Bluetooth, Intent(Settings.ACTION_BLUETOOTH_SETTINGS)),
-            SystemTile("Do Not Disturb", Icons.Default.DoNotDisturbOn, Intent(Settings.ACTION_ZEN_MODE_SETTINGS)),
+            SystemTile("Do Not Disturb", Icons.Default.DoNotDisturbOn, Intent(Settings.ACTION_NOTIFICATION_POLICY_ACCESS_SETTINGS)),
             SystemTile("Rotation", Icons.Default.ScreenRotation, Intent(Settings.ACTION_DISPLAY_SETTINGS))
         )
     }
 
     Box(
-        Modifier
-            .fillMaxSize()
-            .background(MaterialTheme.colorScheme.surface)
-            .pointerInput(Unit) {
-                detectVerticalDragGestures(
-                    onVerticalDrag = { _, amount -> dragTotal += amount },
-                    onDragEnd = { if (dragTotal < -100f) onDismiss(); dragTotal = 0f },
-                    onDragCancel = { dragTotal = 0f }
-                )
-            }
+        Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surface).pointerInput(Unit) {
+            detectVerticalDragGestures(
+                onVerticalDrag = { _, amount -> dragTotal += amount },
+                onDragEnd = { if (dragTotal < -100f) onDismiss(); dragTotal = 0f },
+                onDragCancel = { dragTotal = 0f }
+            )
+        }
     ) {
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
@@ -95,15 +85,10 @@ private fun PixelShadePanel(onDismiss: () -> Unit) {
                         Text(time, style = MaterialTheme.typography.displaySmall, fontWeight = FontWeight.Medium)
                         Text(date, style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
-                    IconButton(onClick = { context.startActivity(Intent(Settings.ACTION_SETTINGS)) }) {
-                        Icon(Icons.Default.Settings, "Settings")
-                    }
-                    IconButton(onClick = onDismiss) {
-                        Icon(Icons.Default.Close, "Close")
-                    }
+                    IconButton(onClick = { context.startActivity(Intent(Settings.ACTION_SETTINGS)) }) { Icon(Icons.Default.Settings, "Settings") }
+                    IconButton(onClick = onDismiss) { Icon(Icons.Default.Close, "Close") }
                 }
             }
-
             item {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text("Brightness", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -119,14 +104,12 @@ private fun PixelShadePanel(onDismiss: () -> Unit) {
                     )
                 }
             }
-
             item {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     systemTiles.chunked(2).forEach { rowTiles ->
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                             rowTiles.forEachIndexed { index, tile ->
-                                val active = index == 0 && rowTiles === systemTiles.chunked(2).firstOrNull()
-                                PixelSystemTile(tile, active, Modifier.weight(1f)) {
+                                PixelSystemTile(tile, index == 0 && tile.label == "Internet", Modifier.weight(1f)) {
                                     runCatching { context.startActivity(tile.intent) }
                                 }
                             }
@@ -135,7 +118,6 @@ private fun PixelShadePanel(onDismiss: () -> Unit) {
                     }
                 }
             }
-
             if (customTiles.isNotEmpty()) {
                 item { Text("Custom", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurfaceVariant) }
                 items(customTiles.size) { index ->
@@ -155,7 +137,6 @@ private fun PixelShadePanel(onDismiss: () -> Unit) {
                     }
                 }
             }
-
             item {
                 HorizontalDivider(Modifier.padding(top = 4.dp))
                 Row(Modifier.fillMaxWidth().padding(top = 10.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
