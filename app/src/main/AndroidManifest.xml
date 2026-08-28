@@ -13,6 +13,10 @@
             <action android:name="android.intent.action.MAIN" />
             <category android:name="android.intent.category.LAUNCHER" />
         </intent>
+        <intent><action android:name="org.adw.launcher.THEMES" /></intent>
+        <intent><action android:name="com.gau.go.launcherex.theme" /></intent>
+        <intent><action android:name="com.novalauncher.THEME" /></intent>
+        <intent><action android:name="com.anddoes.launcher.THEME" /></intent>
     </queries>
 
     <application android:allowBackup="true" android:label="Pixel Shade" android:theme="@style/Theme.PixelShade">
@@ -30,12 +34,8 @@
             android:noHistory="true"
             android:launchMode="singleTask" />
 
-        <receiver
-            android:name=".AdbOverrideReceiver"
-            android:exported="true">
-            <intent-filter>
-                <action android:name="com.crimson.pixelshade.SET_ADB_OVERRIDE" />
-            </intent-filter>
+        <receiver android:name=".AdbOverrideReceiver" android:exported="true">
+            <intent-filter><action android:name="com.crimson.pixelshade.SET_ADB_OVERRIDE" /></intent-filter>
         </receiver>
 
         <service android:name=".PixelShadeTriggerService" android:exported="false" android:stopWithTask="false" android:foregroundServiceType="specialUse">
