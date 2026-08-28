@@ -36,8 +36,6 @@ class PixelShadeTriggerService : Service() {
         triggers.forEach { runCatching { wm.removeView(it) } }
         triggers.clear()
         if (!Settings.canDrawOverlays(this)) return
-        // Accessibility overlays can sit in the SystemUI/status-bar layer. Prefer that
-        // for the top trigger; TYPE_APPLICATION_OVERLAY remains only as a fallback.
         if (!PixelShadeAccessibilityService.isConnected()) addTopTrigger()
         if (PixelShadeConfig.leftEnabled(this)) addSideTrigger(true)
         if (PixelShadeConfig.rightEnabled(this)) addSideTrigger(false)
@@ -116,9 +114,7 @@ class PixelShadeTriggerService : Service() {
             val reverse = PixelShadeConfig.brightnessReverse(this@PixelShadeTriggerService)
             when (e.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
-                    x0 = e.rawX
-                    y0 = e.rawY
-                    mode = 0
+                    x0 = e.rawX; y0 = e.rawY; mode = 0
                     b0 = Settings.System.getInt(contentResolver, Settings.System.SCREEN_BRIGHTNESS, 128)
                     if (PixelShadeConfig.suppressStockShade(this@PixelShadeTriggerService)) PixelShadeAccessibilityService.requestCollapse()
                 }
@@ -137,7 +133,7 @@ class PixelShadeTriggerService : Service() {
                 }
                 MotionEvent.ACTION_UP -> {
                     val dy = e.rawY - y0
-                    if (mode == 1 && dy >= pullDistance) openMain()
+                    if (mode == 1 && dy >= pullDistance) openShade()
                 }
                 MotionEvent.ACTION_CANCEL -> mode = 0
             }
@@ -145,16 +141,16 @@ class PixelShadeTriggerService : Service() {
         }
     }
 
-    private fun openMain() {
+    private fun openShade() {
         if (PixelShadeConfig.suppressStockShade(this)) PixelShadeAccessibilityService.requestCollapse()
-        startActivity(Intent(this, MainActivity::class.java)
-            .putExtra("open_shade_preview", true)
-            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP))
+        startActivity(Intent(this, PixelShadePanelActivity::class.java)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_NO_ANIMATION))
     }
 
     private fun createChannel() {
-        (getSystemService(NOTIFICATION_SERVICE) as NotificationManager)
-            .createNotificationChannel(NotificationChannel("pixel_shade", "Pixel Shade", NotificationManager.IMPORTANCE_MIN))
+        (getSystemService(NOTIFICATION_SERVICE) as NotificationManager).createNotificationChannel(
+            NotificationChannel("pixel_shade", "Pixel Shade", NotificationManager.IMPORTANCE_MIN)
+        )
     }
 
     override fun onDestroy() {
