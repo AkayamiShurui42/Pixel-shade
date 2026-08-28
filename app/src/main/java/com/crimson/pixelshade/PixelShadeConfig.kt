@@ -35,6 +35,11 @@ object PixelShadeConfig {
     const val KEY_PANEL_CORNER_DP = "panel_corner_dp"
     const val KEY_TILE_CORNER_DP = "tile_corner_dp"
 
+    const val KEY_OPEN_ANIMATION = "open_animation"
+    const val KEY_OPEN_DURATION_MS = "open_duration_ms"
+    const val KEY_CLOSE_DURATION_MS = "close_duration_ms"
+    const val KEY_ANIMATION_OVERSHOOT = "animation_overshoot"
+
     fun prefs(context: Context) = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
 
     fun triggerHeightDp(context: Context) = prefs(context).getFloat(KEY_TRIGGER_HEIGHT_DP, 10f)
@@ -66,4 +71,9 @@ object PixelShadeConfig {
     fun blurRadius(context: Context) = prefs(context).getFloat(KEY_BLUR_RADIUS, 24f)
     fun panelCornerDp(context: Context) = prefs(context).getFloat(KEY_PANEL_CORNER_DP, 32f)
     fun tileCornerDp(context: Context) = prefs(context).getFloat(KEY_TILE_CORNER_DP, 24f)
+
+    fun openAnimation(context: Context) = prefs(context).getString(KEY_OPEN_ANIMATION, "pixel") ?: "pixel"
+    fun openDurationMs(context: Context) = prefs(context).getInt(KEY_OPEN_DURATION_MS, 320)
+    fun closeDurationMs(context: Context) = prefs(context).getInt(KEY_CLOSE_DURATION_MS, 220)
+    fun animationOvershoot(context: Context) = prefs(context).getFloat(KEY_ANIMATION_OVERSHOOT, 0.08f)
 }
