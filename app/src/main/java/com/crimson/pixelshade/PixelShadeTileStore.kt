@@ -12,8 +12,15 @@ data class PixelShadeTile(
     val label: String,
     val type: String,
     val target: String,
-    val icon: String = "default"
-)
+    val iconSource: String = "app",
+    val iconValue: String = "",
+    val monochrome: Boolean = true,
+    val widthUnits: Int = 2,
+    val heightUnits: Int = 1
+) {
+    // Compatibility for older callers/builds that referenced `icon`.
+    val icon: String get() = iconValue.ifBlank { iconSource }
+}
 
 object PixelShadeTileStore {
     private const val KEY_TILES = "custom_tiles_json"
@@ -24,12 +31,17 @@ object PixelShadeTileStore {
             val arr = JSONArray(raw)
             MutableList(arr.length()) { i ->
                 val o = arr.getJSONObject(i)
+                val legacyIcon = o.optString("icon", "")
                 PixelShadeTile(
                     id = o.getString("id"),
                     label = o.getString("label"),
                     type = o.getString("type"),
                     target = o.getString("target"),
-                    icon = o.optString("icon", "default")
+                    iconSource = o.optString("iconSource", if (legacyIcon.isBlank() || legacyIcon == "default") "app" else "material"),
+                    iconValue = o.optString("iconValue", legacyIcon),
+                    monochrome = o.optBoolean("monochrome", true),
+                    widthUnits = o.optInt("widthUnits", 2).coerceIn(1, 4),
+                    heightUnits = o.optInt("heightUnits", 1).coerceIn(1, 2)
                 )
             }
         }.getOrDefault(mutableListOf())
@@ -43,7 +55,11 @@ object PixelShadeTileStore {
                 put("label", tile.label)
                 put("type", tile.type)
                 put("target", tile.target)
-                put("icon", tile.icon)
+                put("iconSource", tile.iconSource)
+                put("iconValue", tile.iconValue)
+                put("monochrome", tile.monochrome)
+                put("widthUnits", tile.widthUnits)
+                put("heightUnits", tile.heightUnits)
             })
         }
         PixelShadeConfig.prefs(context).edit().putString(KEY_TILES, arr.toString()).apply()
