@@ -66,23 +66,19 @@ fun PixelShadeTileEditor(onClose: () -> Unit) {
     val apps = remember {
         pm.queryIntentActivities(Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER), 0)
             .map { AppChoice(it.loadLabel(pm).toString(), it.activityInfo.packageName, it) }
-            .distinctBy { it.packageName }
-            .sortedBy { it.label.lowercase() }
+            .distinctBy { it.packageName }.sortedBy { it.label.lowercase() }
     }
     val iconPacks = remember { IconPackResolver.discover(context) }
     val activities = remember(selectedApp?.packageName) {
         selectedApp?.let { app ->
             runCatching {
                 pm.getPackageInfo(app.packageName, android.content.pm.PackageManager.GET_ACTIVITIES)
-                    .activities.orEmpty()
-                    .filter { it.exported }
-                    .map {
+                    .activities.orEmpty().filter { it.exported }.map {
                         ActivityChoice(
                             runCatching { it.loadLabel(pm).toString() }.getOrDefault(it.name.substringAfterLast('.')),
                             ComponentName(app.packageName, it.name)
                         )
-                    }
-                    .sortedBy { it.label.lowercase() }
+                    }.sortedBy { it.label.lowercase() }
             }.getOrDefault(emptyList())
         }.orEmpty()
     }
@@ -90,12 +86,6 @@ fun PixelShadeTileEditor(onClose: () -> Unit) {
     fun save(next: MutableList<PixelShadeTile>) {
         tiles = next
         PixelShadeTileStore.save(context, next)
-    }
-    fun chooseApp(app: AppChoice) {
-        selectedApp = app
-        selectedActivity = null
-        label = app.label
-        if (iconSource == "app") iconValue = app.packageName
     }
 
     val target = when (type) {
@@ -120,7 +110,7 @@ fun PixelShadeTileEditor(onClose: () -> Unit) {
         ) {
             item {
                 Text("Create tile", style = MaterialTheme.typography.headlineSmall)
-                Text("Choose from what is actually installed. Package and activity strings stay out of the normal workflow.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text("Choose installed apps, activities and icon packs visually.", color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             item {
                 SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
@@ -149,7 +139,7 @@ fun PixelShadeTileEditor(onClose: () -> Unit) {
                         Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
                             Column(Modifier.weight(1f)) {
                                 Text(selectedActivity?.label ?: "Choose activity", style = MaterialTheme.typography.titleMedium)
-                                Text(selectedActivity?.component?.className ?: "Browse exported activities for this app", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text(selectedActivity?.component?.className ?: "Browse exported activities", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
                             Icon(Icons.Default.ChevronRight, null)
                         }
@@ -158,20 +148,10 @@ fun PixelShadeTileEditor(onClose: () -> Unit) {
             }
             if (type == "website") {
                 item {
-                    OutlinedTextField(
-                        value = website,
-                        onValueChange = { website = it },
-                        label = { Text("Website") },
-                        placeholder = { Text("https://example.com") },
-                        leadingIcon = { Icon(Icons.Default.Language, null) },
-                        modifier = Modifier.fillMaxWidth(),
-                        singleLine = true
-                    )
+                    OutlinedTextField(value = website, onValueChange = { website = it }, label = { Text("Website") }, leadingIcon = { Icon(Icons.Default.Language, null) }, modifier = Modifier.fillMaxWidth(), singleLine = true)
                 }
             }
-            item {
-                OutlinedTextField(value = label, onValueChange = { label = it }, label = { Text("Tile label") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
-            }
+            item { OutlinedTextField(value = label, onValueChange = { label = it }, label = { Text("Tile label") }, modifier = Modifier.fillMaxWidth(), singleLine = true) }
             item {
                 Text("Icon source", style = MaterialTheme.typography.titleLarge)
                 Spacer(Modifier.height(8.dp))
@@ -182,7 +162,7 @@ fun PixelShadeTileEditor(onClose: () -> Unit) {
                             onClick = {
                                 iconSource = pair.first
                                 if (pair.first == "app") iconValue = selectedApp?.packageName.orEmpty()
-                                if (pair.first == "material" && iconValue !in materialIcons.map { it.id }) iconValue = "apps"
+                                if (pair.first == "material" && materialIcons.none { it.id == iconValue }) iconValue = "apps"
                             },
                             shape = SegmentedButtonDefaults.itemShape(i, 3)
                         ) { Text(pair.second) }
@@ -191,14 +171,20 @@ fun PixelShadeTileEditor(onClose: () -> Unit) {
             }
             if (iconSource == "material") {
                 item {
-                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        materialIcons.forEach { choice ->
-                            FilterChip(
-                                selected = iconValue == choice.id,
-                                onClick = { iconValue = choice.id },
-                                label = { Text(choice.label) },
-                                leadingIcon = { Icon(choice.image, null, Modifier.size(18.dp)) }
-                            )
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        materialIcons.chunked(3).forEach { rowIcons ->
+                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                rowIcons.forEach { choice ->
+                                    FilterChip(
+                                        selected = iconValue == choice.id,
+                                        onClick = { iconValue = choice.id },
+                                        label = { Text(choice.label) },
+                                        leadingIcon = { Icon(choice.image, null, Modifier.size(16.dp)) },
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                }
+                                repeat(3 - rowIcons.size) { Spacer(Modifier.weight(1f)) }
+                            }
                         }
                     }
                 }
@@ -209,7 +195,7 @@ fun PixelShadeTileEditor(onClose: () -> Unit) {
                         Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
                             Column(Modifier.weight(1f)) {
                                 Text(iconPacks.firstOrNull { it.packageName == iconValue }?.label ?: "Choose installed icon pack", style = MaterialTheme.typography.titleMedium)
-                                Text(if (iconPacks.isEmpty()) "No compatible icon packs discovered" else "Pixel Shade will resolve this app through the pack's appfilter", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text(if (iconPacks.isEmpty()) "No compatible icon packs discovered" else "Resolved through the pack's appfilter.xml", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
                             Icon(Icons.Default.ChevronRight, null)
                         }
@@ -220,9 +206,9 @@ fun PixelShadeTileEditor(onClose: () -> Unit) {
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
                         Text("Adaptive monochrome", style = MaterialTheme.typography.titleMedium)
-                        Text("Use Material You colors for active and inactive states.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text("Follow Material You active/inactive colors.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
-                    Switch(checked = monochrome, onCheckedChange = { monochrome = it })
+                    Switch(monochrome, { monochrome = it })
                 }
             }
             item {
@@ -233,7 +219,7 @@ fun PixelShadeTileEditor(onClose: () -> Unit) {
                     TilePreview(label.ifBlank { selectedApp?.label ?: "New tile" }, selectedApp?.packageName, selectedActivity?.component, iconSource, iconValue, true, Modifier.weight(1f))
                 }
                 Spacer(Modifier.height(10.dp))
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     listOf(1 to "1×1", 2 to "2×1", 4 to "4×1").forEach { (units, text) ->
                         FilterChip(selected = widthUnits == units, onClick = { widthUnits = units }, label = { Text(text) })
                     }
@@ -244,21 +230,9 @@ fun PixelShadeTileEditor(onClose: () -> Unit) {
                     enabled = label.isNotBlank() && target.isNotBlank() && (iconSource != "pack" || iconValue.isNotBlank()),
                     onClick = {
                         val next = tiles.toMutableList()
-                        next += PixelShadeTile(
-                            id = UUID.randomUUID().toString(),
-                            label = label.trim(),
-                            type = type,
-                            target = target,
-                            iconSource = iconSource,
-                            iconValue = iconValue,
-                            monochrome = monochrome,
-                            widthUnits = widthUnits,
-                            heightUnits = 1
-                        )
+                        next += PixelShadeTile(UUID.randomUUID().toString(), label.trim(), type, target, iconSource, iconValue, monochrome, widthUnits, 1)
                         save(next)
-                        label = ""
-                        website = ""
-                        selectedActivity = null
+                        label = ""; website = ""; selectedActivity = null
                     },
                     modifier = Modifier.fillMaxWidth().height(54.dp)
                 ) { Text("Add to Pixel Shade") }
@@ -266,15 +240,16 @@ fun PixelShadeTileEditor(onClose: () -> Unit) {
             item { HorizontalDivider(); Text("Your tiles", style = MaterialTheme.typography.headlineSmall) }
             itemsIndexed(tiles, key = { _, tile -> tile.id }) { index, tile ->
                 ElevatedCard(shape = MaterialTheme.shapes.extraLarge) {
-                    Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        Icon(Icons.Default.DragIndicator, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Default.DragIndicator, null)
+                        Spacer(Modifier.width(10.dp))
                         Column(Modifier.weight(1f)) {
                             Text(tile.label, style = MaterialTheme.typography.titleMedium)
                             Text("${tile.type} • ${tile.widthUnits}×${tile.heightUnits}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
-                        IconButton(enabled = index > 0, onClick = { val next = tiles.toMutableList(); val value = next.removeAt(index); next.add(index - 1, value); save(next) }) { Icon(Icons.Default.KeyboardArrowUp, "Move up") }
-                        IconButton(enabled = index < tiles.lastIndex, onClick = { val next = tiles.toMutableList(); val value = next.removeAt(index); next.add(index + 1, value); save(next) }) { Icon(Icons.Default.KeyboardArrowDown, "Move down") }
-                        IconButton(onClick = { val next = tiles.toMutableList(); next.removeAt(index); save(next) }) { Icon(Icons.Default.DeleteOutline, "Remove") }
+                        IconButton(enabled = index > 0, onClick = { val n = tiles.toMutableList(); val v = n.removeAt(index); n.add(index - 1, v); save(n) }) { Icon(Icons.Default.KeyboardArrowUp, "Up") }
+                        IconButton(enabled = index < tiles.lastIndex, onClick = { val n = tiles.toMutableList(); val v = n.removeAt(index); n.add(index + 1, v); save(n) }) { Icon(Icons.Default.KeyboardArrowDown, "Down") }
+                        IconButton(onClick = { val n = tiles.toMutableList(); n.removeAt(index); save(n) }) { Icon(Icons.Default.DeleteOutline, "Remove") }
                     }
                 }
             }
@@ -283,16 +258,19 @@ fun PixelShadeTileEditor(onClose: () -> Unit) {
 
     if (appPickerOpen) {
         ModalBottomSheet(onDismissRequest = { appPickerOpen = false }) {
-            Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
+            Column(Modifier.padding(horizontal = 16.dp)) {
                 Text("Choose app", style = MaterialTheme.typography.headlineSmall)
-                OutlinedTextField(value = appSearch, onValueChange = { appSearch = it }, leadingIcon = { Icon(Icons.Default.Search, null) }, placeholder = { Text("Search installed apps") }, modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp), singleLine = true)
-                LazyColumn(Modifier.fillMaxWidth().heightIn(max = 520.dp)) {
+                OutlinedTextField(appSearch, { appSearch = it }, leadingIcon = { Icon(Icons.Default.Search, null) }, placeholder = { Text("Search installed apps") }, modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp))
+                LazyColumn(Modifier.heightIn(max = 520.dp)) {
                     items(apps.filter { appSearch.isBlank() || it.label.contains(appSearch, true) || it.packageName.contains(appSearch, true) }) { app ->
                         ListItem(
-                            headlineContent = { Text(app.label) },
-                            supportingContent = { Text(app.packageName) },
+                            headlineContent = { Text(app.label) }, supportingContent = { Text(app.packageName) },
                             leadingContent = { DrawableIcon(app.packageName, null, Modifier.size(40.dp)) },
-                            modifier = Modifier.clickable { chooseApp(app); appPickerOpen = false }
+                            modifier = Modifier.clickable {
+                                selectedApp = app; selectedActivity = null; label = app.label
+                                if (iconSource == "app") iconValue = app.packageName
+                                appPickerOpen = false
+                            }
                         )
                     }
                 }
@@ -303,16 +281,12 @@ fun PixelShadeTileEditor(onClose: () -> Unit) {
 
     if (activityPickerOpen) {
         ModalBottomSheet(onDismissRequest = { activityPickerOpen = false }) {
-            Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
+            Column(Modifier.padding(horizontal = 16.dp)) {
                 Text("Choose activity", style = MaterialTheme.typography.headlineSmall)
-                OutlinedTextField(value = activitySearch, onValueChange = { activitySearch = it }, leadingIcon = { Icon(Icons.Default.Search, null) }, placeholder = { Text("Search activities") }, modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp), singleLine = true)
-                LazyColumn(Modifier.fillMaxWidth().heightIn(max = 520.dp)) {
+                OutlinedTextField(activitySearch, { activitySearch = it }, leadingIcon = { Icon(Icons.Default.Search, null) }, placeholder = { Text("Search activities") }, modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp))
+                LazyColumn(Modifier.heightIn(max = 520.dp)) {
                     items(activities.filter { activitySearch.isBlank() || it.label.contains(activitySearch, true) || it.component.className.contains(activitySearch, true) }) { activity ->
-                        ListItem(
-                            headlineContent = { Text(activity.label) },
-                            supportingContent = { Text(activity.component.className) },
-                            modifier = Modifier.clickable { selectedActivity = activity; label = activity.label; activityPickerOpen = false }
-                        )
+                        ListItem(headlineContent = { Text(activity.label) }, supportingContent = { Text(activity.component.className) }, modifier = Modifier.clickable { selectedActivity = activity; label = activity.label; activityPickerOpen = false })
                     }
                 }
                 Spacer(Modifier.height(24.dp))
@@ -322,21 +296,16 @@ fun PixelShadeTileEditor(onClose: () -> Unit) {
 
     if (iconPackPickerOpen) {
         ModalBottomSheet(onDismissRequest = { iconPackPickerOpen = false }) {
-            Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
+            Column(Modifier.padding(horizontal = 16.dp)) {
                 Text("Choose icon pack", style = MaterialTheme.typography.headlineSmall)
-                Spacer(Modifier.height(8.dp))
-                if (iconPacks.isEmpty()) {
-                    Text("No compatible installed icon packs were found.", color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(vertical = 20.dp))
-                } else {
-                    LazyColumn(Modifier.fillMaxWidth().heightIn(max = 520.dp)) {
-                        items(iconPacks) { pack ->
-                            ListItem(
-                                headlineContent = { Text(pack.label) },
-                                supportingContent = { Text(pack.packageName) },
-                                leadingContent = { DrawableIcon(pack.packageName, null, Modifier.size(40.dp)) },
-                                modifier = Modifier.clickable { iconValue = pack.packageName; iconPackPickerOpen = false }
-                            )
-                        }
+                if (iconPacks.isEmpty()) Text("No compatible installed icon packs were found.", modifier = Modifier.padding(vertical = 20.dp), color = MaterialTheme.colorScheme.onSurfaceVariant)
+                else LazyColumn(Modifier.heightIn(max = 520.dp)) {
+                    items(iconPacks) { pack ->
+                        ListItem(
+                            headlineContent = { Text(pack.label) }, supportingContent = { Text(pack.packageName) },
+                            leadingContent = { DrawableIcon(pack.packageName, null, Modifier.size(40.dp)) },
+                            modifier = Modifier.clickable { iconValue = pack.packageName; iconPackPickerOpen = false }
+                        )
                     }
                 }
                 Spacer(Modifier.height(24.dp))
@@ -346,22 +315,22 @@ fun PixelShadeTileEditor(onClose: () -> Unit) {
 }
 
 @Composable
-private fun DrawableIcon(packageName: String?, drawableOverride: android.graphics.drawable.Drawable?, modifier: Modifier = Modifier) {
+private fun DrawableIcon(packageName: String?, override: android.graphics.drawable.Drawable?, modifier: Modifier = Modifier) {
     val context = LocalContext.current
     AndroidView(
         modifier = modifier,
         factory = { ImageView(it).apply { scaleType = ImageView.ScaleType.FIT_CENTER } },
-        update = { image -> image.setImageDrawable(drawableOverride ?: packageName?.let { runCatching { context.packageManager.getApplicationIcon(it) }.getOrNull() }) }
+        update = { it.setImageDrawable(override ?: packageName?.let { p -> runCatching { context.packageManager.getApplicationIcon(p) }.getOrNull() }) }
     )
 }
 
 @Composable
-private fun TilePreview(label: String, packageName: String?, component: ComponentName?, iconSource: String, iconValue: String, active: Boolean, modifier: Modifier = Modifier) {
+private fun TilePreview(label: String, packageName: String?, component: ComponentName?, source: String, value: String, active: Boolean, modifier: Modifier = Modifier) {
     val context = LocalContext.current
-    val packDrawable = remember(packageName, component, iconSource, iconValue) {
-        if (iconSource == "pack" && iconValue.isNotBlank()) {
-            if (component != null) IconPackResolver.resolveForComponent(context, iconValue, component)
-            else packageName?.let { IconPackResolver.resolveForPackage(context, iconValue, it) }
+    val packDrawable = remember(packageName, component, source, value) {
+        if (source == "pack" && value.isNotBlank()) {
+            component?.let { IconPackResolver.resolveForComponent(context, value, it) }
+                ?: packageName?.let { IconPackResolver.resolveForPackage(context, value, it) }
         } else null
     }
     Surface(
@@ -371,8 +340,8 @@ private fun TilePreview(label: String, packageName: String?, component: Componen
         contentColor = if (active) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface
     ) {
         Row(Modifier.padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            when (iconSource) {
-                "material" -> Icon(materialIcons.firstOrNull { it.id == iconValue }?.image ?: Icons.Default.Apps, null, Modifier.size(26.dp))
+            when (source) {
+                "material" -> Icon(materialIcons.firstOrNull { it.id == value }?.image ?: Icons.Default.Apps, null, Modifier.size(26.dp))
                 "pack" -> DrawableIcon(packageName, packDrawable, Modifier.size(28.dp))
                 else -> DrawableIcon(packageName, null, Modifier.size(28.dp))
             }
