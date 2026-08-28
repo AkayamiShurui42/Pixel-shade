@@ -6,6 +6,7 @@ import android.graphics.PixelFormat
 import android.os.IBinder
 import android.provider.Settings
 import android.view.*
+import android.widget.FrameLayout
 import kotlin.math.abs
 import kotlin.math.roundToInt
 
@@ -17,12 +18,17 @@ class PixelShadeTriggerService : Service() {
         super.onCreate()
         wm = getSystemService(WINDOW_SERVICE) as WindowManager
         createChannel()
-        startForeground(1717, Notification.Builder(this, "pixel_shade").setSmallIcon(android.R.drawable.stat_sys_download_done).setContentTitle("Pixel Shade active").setContentText("Gesture triggers are running").build())
+        startForeground(1717, Notification.Builder(this, "pixel_shade")
+            .setSmallIcon(android.R.drawable.stat_sys_download_done)
+            .setContentTitle("Pixel Shade active")
+            .setContentText("Gesture triggers are running")
+            .build())
         rebuildTriggers()
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         rebuildTriggers()
+        PixelShadeAccessibilityService.requestTriggerRefresh()
         return START_STICKY
     }
 
@@ -30,7 +36,9 @@ class PixelShadeTriggerService : Service() {
         triggers.forEach { runCatching { wm.removeView(it) } }
         triggers.clear()
         if (!Settings.canDrawOverlays(this)) return
-        addTopTrigger()
+        // Accessibility overlays can sit in the SystemUI/status-bar layer. Prefer that
+        // for the top trigger; TYPE_APPLICATION_OVERLAY remains only as a fallback.
+        if (!PixelShadeAccessibilityService.isConnected()) addTopTrigger()
         if (PixelShadeConfig.leftEnabled(this)) addSideTrigger(true)
         if (PixelShadeConfig.rightEnabled(this)) addSideTrigger(false)
     }
@@ -39,14 +47,25 @@ class PixelShadeTriggerService : Service() {
         val d = resources.displayMetrics.density
         val screenW = resources.displayMetrics.widthPixels
         val height = (PixelShadeConfig.triggerHeightDp(this) * d).roundToInt().coerceAtLeast(1)
+        val visibleHeight = (PixelShadeConfig.triggerVisibleDp(this) * d).roundToInt().coerceIn(0, height)
         val width = (screenW * PixelShadeConfig.topWidthPercent(this).coerceIn(10f, 100f) / 100f).roundToInt()
         val centerX = (screenW * PixelShadeConfig.topXPercent(this).coerceIn(0f, 100f) / 100f).roundToInt()
-        val visible = PixelShadeConfig.triggerVisibleDp(this) > 0f
-        val view = View(this).apply {
-            setBackgroundColor(if (visible) PixelShadeConfig.triggerColor(this@PixelShadeTriggerService) else 0x00000000)
+        val view = FrameLayout(this).apply {
+            setBackgroundColor(0x00000000)
             setOnTouchListener(GestureListener())
+            if (visibleHeight > 0) {
+                addView(View(this@PixelShadeTriggerService).apply {
+                    setBackgroundColor(PixelShadeConfig.triggerColor(this@PixelShadeTriggerService))
+                }, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, visibleHeight, Gravity.TOP))
+            }
         }
-        val lp = WindowManager.LayoutParams(width, height, WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY, WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN, PixelFormat.TRANSLUCENT).apply {
+        val lp = WindowManager.LayoutParams(
+            width,
+            height,
+            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+            PixelFormat.TRANSLUCENT
+        ).apply {
             gravity = Gravity.TOP or Gravity.START
             x = (centerX - width / 2).coerceIn(0, (screenW - width).coerceAtLeast(0))
             y = (PixelShadeConfig.triggerOffsetDp(this@PixelShadeTriggerService) * d).roundToInt()
@@ -68,7 +87,13 @@ class PixelShadeTriggerService : Service() {
             setBackgroundColor(0x00000000)
             setOnTouchListener(GestureListener())
         }
-        val lp = WindowManager.LayoutParams(width, height, WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY, WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN, PixelFormat.TRANSLUCENT).apply {
+        val lp = WindowManager.LayoutParams(
+            width,
+            height,
+            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+            PixelFormat.TRANSLUCENT
+        ).apply {
             gravity = (if (left) Gravity.START else Gravity.END) or Gravity.TOP
             y = (centerY - height / 2).coerceIn(0, (screenH - height).coerceAtLeast(0))
         }
@@ -91,8 +116,11 @@ class PixelShadeTriggerService : Service() {
             val reverse = PixelShadeConfig.brightnessReverse(this@PixelShadeTriggerService)
             when (e.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
-                    x0 = e.rawX; y0 = e.rawY; mode = 0
+                    x0 = e.rawX
+                    y0 = e.rawY
+                    mode = 0
                     b0 = Settings.System.getInt(contentResolver, Settings.System.SCREEN_BRIGHTNESS, 128)
+                    if (PixelShadeConfig.suppressStockShade(this@PixelShadeTriggerService)) PixelShadeAccessibilityService.requestCollapse()
                 }
                 MotionEvent.ACTION_MOVE -> {
                     val dx = e.rawX - x0
@@ -107,7 +135,11 @@ class PixelShadeTriggerService : Service() {
                         Settings.System.putInt(contentResolver, Settings.System.SCREEN_BRIGHTNESS, (b0 + delta).roundToInt().coerceIn(1, 255))
                     }
                 }
-                MotionEvent.ACTION_UP -> if (e.rawY - y0 >= pullDistance || mode == 1 && e.rawY - y0 >= deadZone) openMain()
+                MotionEvent.ACTION_UP -> {
+                    val dy = e.rawY - y0
+                    if (mode == 1 && dy >= pullDistance) openMain()
+                }
+                MotionEvent.ACTION_CANCEL -> mode = 0
             }
             return true
         }
@@ -115,11 +147,14 @@ class PixelShadeTriggerService : Service() {
 
     private fun openMain() {
         if (PixelShadeConfig.suppressStockShade(this)) PixelShadeAccessibilityService.requestCollapse()
-        startActivity(Intent(this, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP))
+        startActivity(Intent(this, MainActivity::class.java)
+            .putExtra("open_shade_preview", true)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP))
     }
 
     private fun createChannel() {
-        (getSystemService(NOTIFICATION_SERVICE) as NotificationManager).createNotificationChannel(NotificationChannel("pixel_shade", "Pixel Shade", NotificationManager.IMPORTANCE_MIN))
+        (getSystemService(NOTIFICATION_SERVICE) as NotificationManager)
+            .createNotificationChannel(NotificationChannel("pixel_shade", "Pixel Shade", NotificationManager.IMPORTANCE_MIN))
     }
 
     override fun onDestroy() {
