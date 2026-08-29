@@ -65,7 +65,7 @@ object PixelShadeConfig {
     fun brightnessReverse(context: Context) = prefs(context).getBoolean(KEY_BRIGHTNESS_REVERSE, false)
     fun deadZoneDp(context: Context) = prefs(context).getFloat(KEY_GESTURE_DEAD_ZONE_DP, 24f)
     fun tapAction(context: Context) = prefs(context).getString(KEY_TAP_ACTION, "none") ?: "none"
-    fun suppressStockShade(context: Context) = prefs(context).getBoolean(KEY_SUPPRESS_STOCK_SHADE, false)
+    fun suppressStockShade(context: Context) = prefs(context).getBoolean(KEY_SUPPRESS_STOCK_SHADE, true)
 
     fun panelOpacity(context: Context) = prefs(context).getFloat(KEY_PANEL_OPACITY, 0.92f)
     fun blurRadius(context: Context) = prefs(context).getFloat(KEY_BLUR_RADIUS, 24f)
