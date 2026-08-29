@@ -23,10 +23,17 @@ class PixelShadeTriggerService : Service() {
             .setContentTitle("Pixel Shade active")
             .setContentText("Gesture triggers are running")
             .build())
+        StatusBarSuppression.restoreIfNeeded(this)
+        StatusBarSuppression.sync(this)
         rebuildTriggers()
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if (!PixelShadeRuntime.isEnabled(this)) {
+            stopSelf()
+            return START_NOT_STICKY
+        }
+        StatusBarSuppression.sync(this)
         rebuildTriggers()
         PixelShadeAccessibilityService.requestTriggerRefresh()
         return START_STICKY
@@ -35,6 +42,7 @@ class PixelShadeTriggerService : Service() {
     private fun rebuildTriggers() {
         triggers.forEach { runCatching { wm.removeView(it) } }
         triggers.clear()
+        if (!PixelShadeRuntime.isEnabled(this)) return
         if (!Settings.canDrawOverlays(this)) return
         if (!PixelShadeAccessibilityService.isConnected()) addTopTrigger()
         if (PixelShadeConfig.leftEnabled(this)) addSideTrigger(true)
@@ -106,6 +114,7 @@ class PixelShadeTriggerService : Service() {
         private var mode = 0
 
         override fun onTouch(v: View, e: MotionEvent): Boolean {
+            if (!PixelShadeRuntime.isEnabled(this@PixelShadeTriggerService)) return false
             val d = resources.displayMetrics.density
             val deadZone = PixelShadeConfig.deadZoneDp(this@PixelShadeTriggerService) * d
             val pullDistance = PixelShadeConfig.pullDistanceDp(this@PixelShadeTriggerService) * d
@@ -142,6 +151,7 @@ class PixelShadeTriggerService : Service() {
     }
 
     private fun openShade() {
+        if (!PixelShadeRuntime.isEnabled(this)) return
         if (PixelShadeConfig.suppressStockShade(this)) PixelShadeAccessibilityService.requestCollapse()
         startActivity(Intent(this, PixelShadePanelActivity::class.java)
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_NO_ANIMATION))
@@ -156,6 +166,10 @@ class PixelShadeTriggerService : Service() {
     override fun onDestroy() {
         triggers.forEach { runCatching { wm.removeView(it) } }
         triggers.clear()
+        if (!PixelShadeRuntime.isEnabled(this)) {
+            StatusBarSuppression.setExpansionDisabled(this, false)
+        }
+        PixelShadeAccessibilityService.requestTriggerRefresh()
         super.onDestroy()
     }
 
