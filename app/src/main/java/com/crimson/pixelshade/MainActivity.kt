@@ -40,6 +40,7 @@ private enum class Screen { HOME, EDITOR, TILES }
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        StatusBarSuppression.restoreIfNeeded(this)
         setContent { PixelShadeRoot() }
     }
 }
@@ -68,15 +69,30 @@ private fun PixelShadeSetup(themeMode: ThemeMode, onThemeModeChange: (ThemeMode)
     val lifecycleOwner = LocalLifecycleOwner.current
     val prefs = remember { context.getSharedPreferences(AdbOverrideReceiver.PREFS_NAME, Context.MODE_PRIVATE) }
     var refresh by remember { mutableIntStateOf(0) }
-    var triggerEnabled by remember { mutableStateOf(false) }
+    var triggerEnabled by remember { mutableStateOf(PixelShadeRuntime.isEnabled(context)) }
     val notifLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { refresh++ }
 
     DisposableEffect(lifecycleOwner) {
-        val lifecycleObserver = LifecycleEventObserver { _, event -> if (event == Lifecycle.Event.ON_RESUME) refresh++ }
+        val lifecycleObserver = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                triggerEnabled = PixelShadeRuntime.isEnabled(context)
+                StatusBarSuppression.restoreIfNeeded(context)
+                refresh++
+            }
+        }
         lifecycleOwner.lifecycle.addObserver(lifecycleObserver)
-        val binderReceived = Shizuku.OnBinderReceivedListener { refresh++ }
+        val binderReceived = Shizuku.OnBinderReceivedListener {
+            StatusBarSuppression.restoreIfNeeded(context)
+            StatusBarSuppression.sync(context)
+            refresh++
+        }
         val binderDead = Shizuku.OnBinderDeadListener { refresh++ }
-        val permissionResult = Shizuku.OnRequestPermissionResultListener { requestCode, _ -> if (requestCode == SHIZUKU_REQUEST) refresh++ }
+        val permissionResult = Shizuku.OnRequestPermissionResultListener { requestCode, grantResult ->
+            if (requestCode == SHIZUKU_REQUEST) {
+                if (grantResult == PackageManager.PERMISSION_GRANTED) StatusBarSuppression.sync(context)
+                refresh++
+            }
+        }
         runCatching { Shizuku.addBinderReceivedListenerSticky(binderReceived) }
         runCatching { Shizuku.addBinderDeadListener(binderDead) }
         runCatching { Shizuku.addRequestPermissionResultListener(permissionResult) }
@@ -108,7 +124,7 @@ private fun PixelShadeSetup(themeMode: ThemeMode, onThemeModeChange: (ThemeMode)
                 Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text("Your shade, your rules", style = MaterialTheme.typography.headlineSmall)
                     Text("Pixel-style shade replacement with editable triggers, tiles, motion and dynamic Material color.", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    AssistChip(onClick = {}, label = { Text(when { shizukuGranted -> "Shizuku connected"; adbOverride -> "ADB fallback active"; else -> "Privileged access needed" }) })
+                    AssistChip(onClick = {}, label = { Text(when { shizukuGranted -> "Shizuku connected"; adbOverride -> "ADB fallback active"; else -> "Privileged access optional" }) })
                 }
             }
 
@@ -137,10 +153,23 @@ private fun PixelShadeSetup(themeMode: ThemeMode, onThemeModeChange: (ThemeMode)
                 }
             }
 
-            Button(enabled = overlayGranted && privilegedReady, onClick = {
-                triggerEnabled = !triggerEnabled
+            if (PixelShadeConfig.suppressStockShade(context) && !shizukuGranted) {
+                Text("Stock-shade blocking needs Shizuku. Accessibility collapse remains available as a fallback, but it cannot set Android's statusbar-expansion disable flag.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+
+            Button(enabled = accessibility || overlayGranted, onClick = {
+                val next = !triggerEnabled
+                triggerEnabled = next
+                PixelShadeRuntime.setEnabled(context, next)
                 val i = Intent(context, PixelShadeTriggerService::class.java)
-                if (triggerEnabled) context.startForegroundService(i) else context.stopService(i)
+                if (next) {
+                    context.startForegroundService(i)
+                    StatusBarSuppression.sync(context)
+                } else {
+                    StatusBarSuppression.setExpansionDisabled(context, false)
+                    context.stopService(i)
+                }
+                PixelShadeAccessibilityService.requestTriggerRefresh()
             }, modifier = Modifier.fillMaxWidth(), contentPadding = PaddingValues(vertical = 14.dp)) { Text(if (triggerEnabled) "Disable Pixel Shade" else "Start Pixel Shade") }
         }
     }
