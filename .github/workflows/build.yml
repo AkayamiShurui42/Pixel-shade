@@ -67,8 +67,23 @@ jobs:
           cp .ci/ShizukuPlus-API/api/build/outputs/aar/api-release.aar app/libs/shizuku-plus-api.aar
           cp .ci/ShizukuPlus-API/provider/build/outputs/aar/provider-release.aar app/libs/shizuku-plus-provider.aar
 
+      - name: Restore stable debug signing key
+        run: |
+          base64 --decode ci/pixelshade-debug.keystore.b64 > app/pixelshade-debug.keystore
+          keytool -list -keystore app/pixelshade-debug.keystore -storepass pixelshade-debug -alias pixelshade-debug >/dev/null
+
       - name: Build standalone Pixel Shade APK
         run: gradle --no-daemon :app:assembleDebug --stacktrace
+
+      - name: Verify Pixel Shade APK
+        run: |
+          APK=app/build/outputs/apk/debug/app-debug.apk
+          test -s "$APK"
+          unzip -t "$APK" >/dev/null
+          APKSIGNER=$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)
+          test -n "$APKSIGNER"
+          "$APKSIGNER" verify --verbose --print-certs "$APK"
+          sha256sum "$APK"
 
       - name: Upload Pixel Shade APK
         if: success()
