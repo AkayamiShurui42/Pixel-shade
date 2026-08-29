@@ -24,7 +24,10 @@ class PixelShadeAccessibilityService : AccessibilityService() {
         }
 
         fun requestTriggerRefresh() {
-            instance?.rebuildTopTrigger()
+            instance?.let {
+                it.rebuildTopTrigger()
+                StatusBarSuppression.sync(it)
+            }
         }
     }
 
@@ -35,13 +38,16 @@ class PixelShadeAccessibilityService : AccessibilityService() {
         super.onServiceConnected()
         instance = this
         wm = getSystemService(WINDOW_SERVICE) as WindowManager
+        StatusBarSuppression.restoreIfNeeded(this)
         rebuildTopTrigger()
+        StatusBarSuppression.sync(this)
     }
 
     fun rebuildTopTrigger() {
         if (!::wm.isInitialized) return
         topTrigger?.let { runCatching { wm.removeView(it) } }
         topTrigger = null
+        if (!PixelShadeRuntime.isEnabled(this)) return
 
         val density = resources.displayMetrics.density
         val screenW = resources.displayMetrics.widthPixels
@@ -88,6 +94,7 @@ class PixelShadeAccessibilityService : AccessibilityService() {
         private var mode = 0
 
         override fun onTouch(v: View, event: MotionEvent): Boolean {
+            if (!PixelShadeRuntime.isEnabled(this@PixelShadeAccessibilityService)) return false
             val density = resources.displayMetrics.density
             val deadZone = PixelShadeConfig.deadZoneDp(this@PixelShadeAccessibilityService) * density
             val pullDistance = PixelShadeConfig.pullDistanceDp(this@PixelShadeAccessibilityService) * density
@@ -123,6 +130,7 @@ class PixelShadeAccessibilityService : AccessibilityService() {
     }
 
     private fun openShade() {
+        if (!PixelShadeRuntime.isEnabled(this)) return
         if (PixelShadeConfig.suppressStockShade(this)) requestCollapse()
         startActivity(Intent(this, PixelShadePanelActivity::class.java)
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_NO_ANIMATION))
@@ -136,7 +144,7 @@ class PixelShadeAccessibilityService : AccessibilityService() {
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
-        if (event?.packageName == "com.android.systemui" && PixelShadeConfig.suppressStockShade(this)) {
+        if (PixelShadeRuntime.isEnabled(this) && event?.packageName == "com.android.systemui" && PixelShadeConfig.suppressStockShade(this)) {
             val type = event.eventType
             if (type == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED || type == AccessibilityEvent.TYPE_WINDOWS_CHANGED) {
                 requestCollapse()
