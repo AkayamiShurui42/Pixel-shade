@@ -24,6 +24,7 @@ android {
             storePassword = "pixelshade-debug"
             keyAlias = "pixelshade-debug"
             keyPassword = "pixelshade-debug"
+            storeType = "JKS"
         }
     }
 
