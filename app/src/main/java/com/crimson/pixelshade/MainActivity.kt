@@ -171,6 +171,17 @@ private fun PixelShadeSetup(themeMode: ThemeMode, onThemeModeChange: (ThemeMode)
                 }
                 PixelShadeAccessibilityService.requestTriggerRefresh()
             }, modifier = Modifier.fillMaxWidth(), contentPadding = PaddingValues(vertical = 14.dp)) { Text(if (triggerEnabled) "Disable Pixel Shade" else "Start Pixel Shade") }
+
+            OutlinedButton(enabled = shizukuGranted, onClick = {
+                triggerEnabled = false
+                PixelShadeRuntime.setEnabled(context, false)
+                StatusBarSuppression.setExpansionDisabled(context, false)
+                context.stopService(Intent(context, PixelShadeTriggerService::class.java))
+                PixelShadeAccessibilityService.requestTriggerRefresh()
+            }, modifier = Modifier.fillMaxWidth()) {
+                Text("Restore OxygenOS shade")
+            }
+            Text("Emergency restore clears Pixel Shade's privileged status-bar expansion block and stops its trigger service.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }
