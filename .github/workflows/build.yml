@@ -70,7 +70,7 @@ jobs:
       - name: Restore stable debug signing key
         run: |
           base64 --decode ci/pixelshade-debug.keystore.b64 > app/pixelshade-debug.keystore
-          keytool -list -keystore app/pixelshade-debug.keystore -storepass pixelshade-debug -alias pixelshade-debug >/dev/null
+          keytool -list -storetype JKS -keystore app/pixelshade-debug.keystore -storepass pixelshade-debug -alias pixelshade-debug >/dev/null
 
       - name: Build standalone Pixel Shade APK
         run: gradle --no-daemon :app:assembleDebug --stacktrace
