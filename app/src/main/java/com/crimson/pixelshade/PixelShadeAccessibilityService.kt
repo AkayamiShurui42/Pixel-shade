@@ -23,6 +23,9 @@ class PixelShadeAccessibilityService : AccessibilityService() {
             instance?.performGlobalAction(GLOBAL_ACTION_DISMISS_NOTIFICATION_SHADE)
         }
 
+        fun requestPowerDialog(): Boolean =
+            instance?.performGlobalAction(GLOBAL_ACTION_POWER_DIALOG) == true
+
         fun requestTriggerRefresh() {
             instance?.let {
                 it.rebuildTopTrigger()
