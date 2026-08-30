@@ -18,7 +18,6 @@ data class PixelShadeTile(
     val widthUnits: Int = 2,
     val heightUnits: Int = 1
 ) {
-    // Compatibility for older callers/builds that referenced `icon`.
     val icon: String get() = iconValue.ifBlank { iconSource }
 }
 
@@ -65,17 +64,23 @@ object PixelShadeTileStore {
         PixelShadeConfig.prefs(context).edit().putString(KEY_TILES, arr.toString()).apply()
     }
 
-    fun launch(context: Context, tile: PixelShadeTile) {
+    fun launch(context: Context, tile: PixelShadeTile): Boolean {
         val intent = when (tile.type) {
             "app" -> context.packageManager.getLaunchIntentForPackage(tile.target)
             "activity" -> {
-                val component = ComponentName.unflattenFromString(tile.target) ?: return
+                val component = ComponentName.unflattenFromString(tile.target) ?: return false
                 Intent().setComponent(component)
             }
-            "website" -> Intent(Intent.ACTION_VIEW, Uri.parse(tile.target))
+            "website" -> {
+                val uri = runCatching { Uri.parse(tile.target) }.getOrNull() ?: return false
+                Intent(Intent.ACTION_VIEW, uri)
+            }
             else -> null
-        } ?: return
+        } ?: return false
         intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        context.startActivity(intent)
+        return runCatching {
+            context.startActivity(intent)
+            true
+        }.getOrDefault(false)
     }
 }
