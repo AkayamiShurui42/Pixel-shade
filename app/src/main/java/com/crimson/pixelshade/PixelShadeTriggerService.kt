@@ -123,7 +123,9 @@ class PixelShadeTriggerService : Service() {
             val reverse = PixelShadeConfig.brightnessReverse(this@PixelShadeTriggerService)
             when (e.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
-                    x0 = e.rawX; y0 = e.rawY; mode = 0
+                    x0 = e.rawX
+                    y0 = e.rawY
+                    mode = 0
                     b0 = Settings.System.getInt(contentResolver, Settings.System.SCREEN_BRIGHTNESS, 128)
                     if (PixelShadeConfig.suppressStockShade(this@PixelShadeTriggerService)) PixelShadeAccessibilityService.requestCollapse()
                 }
@@ -153,7 +155,7 @@ class PixelShadeTriggerService : Service() {
     private fun openShade() {
         if (!PixelShadeRuntime.isEnabled(this)) return
         if (PixelShadeConfig.suppressStockShade(this)) PixelShadeAccessibilityService.requestCollapse()
-        startActivity(Intent(this, PixelShadePanelActivity::class.java)
+        startActivity(Intent(this, PixelShadePanelV2Activity::class.java)
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_NO_ANIMATION))
     }
 
