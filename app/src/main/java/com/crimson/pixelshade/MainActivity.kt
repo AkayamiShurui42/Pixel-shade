@@ -19,12 +19,17 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
@@ -50,6 +55,7 @@ private fun PixelShadeRoot() {
     val context = LocalContext.current
     val prefs = remember { context.getSharedPreferences(AdbOverrideReceiver.PREFS_NAME, Context.MODE_PRIVATE) }
     var screen by remember { mutableStateOf(Screen.HOME) }
+    var editorTab by remember { mutableStateOf(PixelShadeEditorTab.HANDLE) }
     var themeMode by remember {
         mutableStateOf(
             runCatching { ThemeMode.valueOf(prefs.getString(PREF_THEME_MODE, ThemeMode.SYSTEM.name)!!) }
@@ -70,30 +76,42 @@ private fun PixelShadeRoot() {
     MaterialTheme(colorScheme = colors) {
         when (screen) {
             Screen.HOME -> PixelShadeSetup(
-                themeMode,
-                {
+                themeMode = themeMode,
+                onThemeModeChange = {
                     themeMode = it
                     prefs.edit().putString(PREF_THEME_MODE, it.name).apply()
                 },
-                { screen = Screen.EDITOR }
+                onOpenEditor = {
+                    editorTab = it
+                    screen = Screen.EDITOR
+                },
+                onOpenTiles = { screen = Screen.TILES }
             )
             Screen.EDITOR -> PixelShadeEditorV2(
                 onClose = { screen = Screen.HOME },
-                onOpenTiles = { screen = Screen.TILES }
+                onOpenTiles = { screen = Screen.TILES },
+                initialTab = editorTab
             )
-            Screen.TILES -> PixelShadeTileEditorNext(onClose = { screen = Screen.EDITOR })
+            Screen.TILES -> PixelShadeTileEditorNext(onClose = { screen = Screen.HOME })
         }
     }
 }
 
 @Composable
-private fun PixelShadeSetup(themeMode: ThemeMode, onThemeModeChange: (ThemeMode) -> Unit, onOpenEditor: () -> Unit) {
+private fun PixelShadeSetup(
+    themeMode: ThemeMode,
+    onThemeModeChange: (ThemeMode) -> Unit,
+    onOpenEditor: (PixelShadeEditorTab) -> Unit,
+    onOpenTiles: () -> Unit
+) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     val prefs = remember { context.getSharedPreferences(AdbOverrideReceiver.PREFS_NAME, Context.MODE_PRIVATE) }
     var refresh by remember { mutableIntStateOf(0) }
     var triggerEnabled by remember { mutableStateOf(PixelShadeRuntime.isEnabled(context)) }
     var operationMessage by remember { mutableStateOf<String?>(null) }
+    var setupExpanded by remember { mutableStateOf(false) }
+    var oxygenExpanded by remember { mutableStateOf(false) }
     val notifLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { refresh++ }
 
     DisposableEffect(lifecycleOwner) {
@@ -141,10 +159,7 @@ private fun PixelShadeSetup(themeMode: ThemeMode, onThemeModeChange: (ThemeMode)
     val privilegedReady = shizukuGranted || adbOverride
     val enabledListeners = Settings.Secure.getString(context.contentResolver, "enabled_notification_listeners").orEmpty()
     val notificationAccess = enabledListeners.contains(context.packageName)
-    val enabledAccessibility = Settings.Secure.getString(
-        context.contentResolver,
-        Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES
-    ).orEmpty()
+    val enabledAccessibility = Settings.Secure.getString(context.contentResolver, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES).orEmpty()
     val accessibility = enabledAccessibility.contains(
         ComponentName(context, PixelShadeAccessibilityService::class.java).flattenToString(),
         ignoreCase = true
@@ -154,54 +169,78 @@ private fun PixelShadeSetup(themeMode: ThemeMode, onThemeModeChange: (ThemeMode)
     val oplusPlugins = remember(refresh) { OplusQsPluginControl.discover(context) }
     val disabledPluginPackage = OplusQsPluginControl.packageDisabledByUs(context)
 
+    fun setServiceEnabled(enabled: Boolean) {
+        triggerEnabled = enabled
+        PixelShadeRuntime.setEnabled(context, enabled)
+        val serviceIntent = Intent(context, PixelShadeTriggerService::class.java)
+        if (enabled) {
+            context.startForegroundService(serviceIntent)
+            StatusBarSuppression.sync(context)
+        } else {
+            StatusBarSuppression.setExpansionDisabled(context, false)
+            context.stopService(serviceIntent)
+        }
+        PixelShadeAccessibilityService.requestTriggerRefresh()
+    }
+
     Scaffold(topBar = { CenterAlignedTopAppBar(title = { Text("Pixel Shade") }) }) { padding ->
         Column(
-            Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState()).padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
+            Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState()).padding(horizontal = 18.dp, vertical = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(18.dp)
         ) {
-            ElevatedCard(Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.extraLarge) {
-                Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("Your shade, your rules", style = MaterialTheme.typography.headlineSmall)
-                    Text(
-                        "Pixel-style shade replacement with editable triggers, real notifications, system toggles and integrated custom quick tiles.",
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    AssistChip(
-                        onClick = {},
-                        label = {
-                            Text(
-                                when {
-                                    shizukuGranted -> "Shizuku connected"
-                                    adbOverride -> "ADB fallback active"
-                                    else -> "Privileged access optional"
-                                }
-                            )
-                        }
-                    )
-                }
-            }
-
-            SettingsCard("Customize") {
-                Text(
-                    "Edit trigger zones, one-handed side gestures, panel style, motion and custom tiles with the pinned live preview.",
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                Button(onClick = onOpenEditor, modifier = Modifier.fillMaxWidth()) { Text("Edit Pixel Shade") }
-            }
-
-            SettingsCard("Appearance") {
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    ThemeMode.entries.forEach { mode ->
-                        FilterChip(
-                            selected = themeMode == mode,
-                            onClick = { onThemeModeChange(mode) },
-                            label = { Text(mode.name.lowercase().replaceFirstChar { it.uppercase() }) }
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(34.dp),
+                tonalElevation = 3.dp,
+                color = if (triggerEnabled) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainerHigh
+            ) {
+                Row(
+                    Modifier.fillMaxWidth().padding(horizontal = 22.dp, vertical = 20.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        Text(
+                            if (triggerEnabled) "Service running" else "Service stopped",
+                            style = MaterialTheme.typography.titleLarge,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        Text(
+                            if (triggerEnabled) "Pixel Shade owns the configured trigger regions" else "Enable the service to replace the stock pull-down gesture",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
+                    Switch(checked = triggerEnabled, onCheckedChange = { setServiceEnabled(it) })
                 }
             }
 
-            SettingsCard("Permissions") {
+            Text("Customize", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Column(verticalArrangement = Arrangement.spacedBy(18.dp)) {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
+                    HubCategory("Tiles", Icons.Default.GridView, onOpenTiles)
+                    HubCategory("Sliders", Icons.Default.Tune) { onOpenEditor(PixelShadeEditorTab.SLIDERS) }
+                    HubCategory("Colors", Icons.Default.Palette) { onOpenEditor(PixelShadeEditorTab.COLORS) }
+                }
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
+                    HubCategory("Handle", Icons.Default.SwipeDown) { onOpenEditor(PixelShadeEditorTab.HANDLE) }
+                    HubCategory("Layout", Icons.Default.DashboardCustomize) { onOpenEditor(PixelShadeEditorTab.LAYOUT) }
+                    HubCategory("Notifications", Icons.Default.Notifications) { onOpenEditor(PixelShadeEditorTab.NOTIFICATIONS) }
+                }
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
+                    HubCategory("Motion", Icons.Default.Animation) { onOpenEditor(PixelShadeEditorTab.MOTION) }
+                    HubCategory("Advanced", Icons.Default.Build) { onOpenEditor(PixelShadeEditorTab.ADVANCED) }
+                    HubCategory("Preview", Icons.Default.Visibility) { onOpenEditor(PixelShadeEditorTab.LAYOUT) }
+                }
+            }
+
+            HorizontalDivider()
+
+            SettingsExpansionCard(
+                title = "Setup & permissions",
+                subtitle = setupSummary(notificationAccess, accessibility, overlayGranted, writeSettings, privilegedReady),
+                expanded = setupExpanded,
+                onToggle = { setupExpanded = !setupExpanded }
+            ) {
                 PermissionRow("Notifications", notificationGranted) {
                     if (Build.VERSION.SDK_INT >= 33) notifLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
                 }
@@ -233,17 +272,29 @@ private fun PixelShadeSetup(themeMode: ThemeMode, onThemeModeChange: (ThemeMode)
                         context.startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
                     }
                 }
+                Text("App appearance", style = MaterialTheme.typography.titleSmall)
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    ThemeMode.entries.forEach { mode ->
+                        FilterChip(
+                            selected = themeMode == mode,
+                            onClick = { onThemeModeChange(mode) },
+                            label = { Text(mode.name.lowercase().replaceFirstChar { it.uppercase() }) }
+                        )
+                    }
+                }
             }
 
-            SettingsCard("OxygenOS shade blocking") {
+            SettingsExpansionCard(
+                title = "OxygenOS integration",
+                subtitle = if (PixelShadeConfig.suppressStockShade(context)) "Stock shade blocking enabled" else "Stock shade blocking disabled",
+                expanded = oxygenExpanded,
+                onToggle = { oxygenExpanded = !oxygenExpanded }
+            ) {
                 Text(
-                    "Primary method: Android's statusbar-expansion disable flag. Pixel Shade sends the same framework disable state through Shizuku that SystemUI checks before expanding.",
+                    "Primary block uses Android's statusbar-expansion disable flag through Shizuku.",
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
-                Text(
-                    "ADB equivalent: cmd statusbar send-disable-flag statusbar-expansion",
-                    style = MaterialTheme.typography.bodySmall
-                )
+                Text("ADB: cmd statusbar send-disable-flag statusbar-expansion", style = MaterialTheme.typography.bodySmall)
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     FilledTonalButton(
                         enabled = shizukuGranted,
@@ -262,9 +313,8 @@ private fun PixelShadeSetup(themeMode: ThemeMode, onThemeModeChange: (ThemeMode)
                         modifier = Modifier.weight(1f)
                     ) { Text("Restore") }
                 }
-
                 HorizontalDivider()
-                Text("OxygenOS separate QS plugin", style = MaterialTheme.typography.titleMedium)
+                Text("Separate OxygenOS QS plugin", style = MaterialTheme.typography.titleSmall)
                 when {
                     disabledPluginPackage != null -> {
                         Text("Pixel Shade isolated: $disabledPluginPackage", style = MaterialTheme.typography.bodySmall)
@@ -279,36 +329,28 @@ private fun PixelShadeSetup(themeMode: ThemeMode, onThemeModeChange: (ThemeMode)
                             modifier = Modifier.fillMaxWidth()
                         ) { Text("Restore separate QS plugin") }
                     }
-                    oplusPlugins.isEmpty() -> {
-                        Text(
-                            "No external handler for com.android.systemui.action.SEPARATE_QS_PLUGIN is visible on this build. The framework expansion block still works independently.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                    else -> {
-                        oplusPlugins.forEach { candidate ->
-                            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                Text(candidate.label, style = MaterialTheme.typography.titleSmall)
-                                Text("${candidate.packageName}\n${candidate.serviceName}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                if (candidate.safeToIsolate) {
-                                    OutlinedButton(
-                                        enabled = shizukuGranted,
-                                        onClick = {
-                                            OplusQsPluginControl.isolate(context, candidate) { ok ->
-                                                operationMessage = if (ok) "Isolated ${candidate.packageName}" else "Could not isolate ${candidate.packageName}"
-                                                refresh++
-                                            }
-                                        },
-                                        modifier = Modifier.fillMaxWidth()
-                                    ) { Text("Isolate this QS plugin (experimental)") }
-                                } else {
-                                    Text(
-                                        "Protected from package disabling. Pixel Shade will not disable SystemUI itself.",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                }
+                    oplusPlugins.isEmpty() -> Text(
+                        "No external separate-QS plugin is visible to Pixel Shade on this build. The framework expansion block remains independent.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    else -> oplusPlugins.forEach { candidate ->
+                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Text(candidate.label, style = MaterialTheme.typography.titleSmall)
+                            Text("${candidate.packageName}\n${candidate.serviceName}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            if (candidate.safeToIsolate) {
+                                OutlinedButton(
+                                    enabled = shizukuGranted,
+                                    onClick = {
+                                        OplusQsPluginControl.isolate(context, candidate) { ok ->
+                                            operationMessage = if (ok) "Isolated ${candidate.packageName}" else "Could not isolate ${candidate.packageName}"
+                                            refresh++
+                                        }
+                                    },
+                                    modifier = Modifier.fillMaxWidth()
+                                ) { Text("Isolate plugin (experimental)") }
+                            } else {
+                                Text("Protected: Pixel Shade will not disable SystemUI itself.", style = MaterialTheme.typography.bodySmall)
                             }
                         }
                     }
@@ -316,63 +358,55 @@ private fun PixelShadeSetup(themeMode: ThemeMode, onThemeModeChange: (ThemeMode)
                 operationMessage?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary) }
             }
 
-            if (PixelShadeConfig.suppressStockShade(context) && !shizukuGranted) {
-                Text(
-                    "Stock-shade blocking needs Shizuku. Accessibility collapse remains a fallback, but it cannot set Android's statusbar-expansion disable flag.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-
-            Button(
-                enabled = accessibility || overlayGranted,
-                onClick = {
-                    val next = !triggerEnabled
-                    triggerEnabled = next
-                    PixelShadeRuntime.setEnabled(context, next)
-                    val i = Intent(context, PixelShadeTriggerService::class.java)
-                    if (next) {
-                        context.startForegroundService(i)
-                        StatusBarSuppression.sync(context)
-                    } else {
-                        StatusBarSuppression.setExpansionDisabled(context, false)
-                        context.stopService(i)
-                    }
-                    PixelShadeAccessibilityService.requestTriggerRefresh()
-                },
-                modifier = Modifier.fillMaxWidth(),
-                contentPadding = PaddingValues(vertical = 14.dp)
-            ) { Text(if (triggerEnabled) "Disable Pixel Shade" else "Start Pixel Shade") }
-
             OutlinedButton(
                 enabled = shizukuGranted,
                 onClick = {
-                    triggerEnabled = false
-                    PixelShadeRuntime.setEnabled(context, false)
-                    StatusBarSuppression.setExpansionDisabled(context, false)
+                    setServiceEnabled(false)
                     OplusQsPluginControl.restore(context) { refresh++ }
-                    context.stopService(Intent(context, PixelShadeTriggerService::class.java))
-                    PixelShadeAccessibilityService.requestTriggerRefresh()
                 },
                 modifier = Modifier.fillMaxWidth()
-            ) { Text("Restore OxygenOS shade") }
-            Text(
-                "Emergency restore clears Pixel Shade's framework expansion block, re-enables any OxygenOS QS plugin Pixel Shade isolated, and stops the trigger service.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
+            ) { Text("Emergency restore OxygenOS shade") }
+            Spacer(Modifier.height(20.dp))
         }
     }
 }
 
 @Composable
-private fun SettingsCard(title: String, content: @Composable ColumnScope.() -> Unit) {
+private fun HubCategory(label: String, icon: ImageVector, onClick: () -> Unit) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.width(96.dp)) {
+        FilledTonalIconButton(onClick = onClick, modifier = Modifier.size(64.dp), shape = CircleShape) {
+            Icon(icon, label, Modifier.size(29.dp))
+        }
+        Spacer(Modifier.height(7.dp))
+        Text(label, style = MaterialTheme.typography.labelLarge, maxLines = 1)
+    }
+}
+
+@Composable
+private fun SettingsExpansionCard(
+    title: String,
+    subtitle: String,
+    expanded: Boolean,
+    onToggle: () -> Unit,
+    content: @Composable ColumnScope.() -> Unit
+) {
     ElevatedCard(Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.extraLarge) {
-        Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text(title, style = MaterialTheme.typography.titleLarge)
-            content()
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                    Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                IconButton(onClick = onToggle) { Icon(if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore, null) }
+            }
+            if (expanded) content()
         }
     }
+}
+
+private fun setupSummary(notificationAccess: Boolean, accessibility: Boolean, overlay: Boolean, write: Boolean, privileged: Boolean): String {
+    val ready = listOf(notificationAccess, accessibility, overlay, write, privileged).count { it }
+    return "$ready / 5 core capabilities ready"
 }
 
 @Composable
