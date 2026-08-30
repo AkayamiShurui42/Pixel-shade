@@ -57,7 +57,7 @@ private fun PixelShadeRoot() {
     MaterialTheme(colorScheme = colors) {
         when (screen) {
             Screen.HOME -> PixelShadeSetup(themeMode, { themeMode = it; prefs.edit().putString(PREF_THEME_MODE, it.name).apply() }, { screen = Screen.EDITOR })
-            Screen.EDITOR -> PixelShadeEditor(onClose = { screen = Screen.HOME }, onOpenTiles = { screen = Screen.TILES })
+            Screen.EDITOR -> PixelShadeEditorV2(onClose = { screen = Screen.HOME }, onOpenTiles = { screen = Screen.TILES })
             Screen.TILES -> PixelShadeTileEditor(onClose = { screen = Screen.EDITOR })
         }
     }
