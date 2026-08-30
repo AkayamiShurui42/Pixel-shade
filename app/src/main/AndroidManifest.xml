@@ -38,6 +38,13 @@
             android:noHistory="true"
             android:launchMode="singleTask" />
 
+        <activity
+            android:name=".PixelShadePanelV2Activity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:noHistory="true"
+            android:launchMode="singleTask" />
+
         <receiver android:name=".AdbOverrideReceiver" android:exported="true">
             <intent-filter><action android:name="com.crimson.pixelshade.SET_ADB_OVERRIDE" /></intent-filter>
         </receiver>
