@@ -1,6 +1,7 @@
 package com.crimson.pixelshade
 
 import android.Manifest
+import android.content.ComponentName
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.drawable.ColorDrawable
@@ -183,7 +184,11 @@ private fun PixelShadePanel(onFinish: () -> Unit) {
                     onValueChange = {
                         brightness = it.coerceIn(.01f, 1f)
                         if (Settings.System.canWrite(context)) {
-                            Settings.System.putInt(context.contentResolver, Settings.System.SCREEN_BRIGHTNESS, (brightness * 255).roundToInt().coerceIn(1, 255))
+                            Settings.System.putInt(
+                                context.contentResolver,
+                                Settings.System.SCREEN_BRIGHTNESS,
+                                (brightness * 255).roundToInt().coerceIn(1, 255)
+                            )
                         }
                     }
                 )
@@ -250,7 +255,11 @@ private fun PixelShadePanel(onFinish: () -> Unit) {
                 }
             } else if (mediaNotification == null) {
                 item {
-                    Column(Modifier.fillMaxWidth().padding(vertical = 28.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Column(
+                        Modifier.fillMaxWidth().padding(vertical = 28.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
                         Icon(Icons.Default.NotificationsNone, null, Modifier.size(30.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
                         Text("No notifications", color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
@@ -270,7 +279,11 @@ private fun PixelShadePanel(onFinish: () -> Unit) {
                         color = MaterialTheme.colorScheme.surfaceContainerHighest
                     ) {
                         Box(contentAlignment = Alignment.Center) {
-                            Box(Modifier.width(28.dp).height(4.dp).clip(RoundedCornerShape(2.dp)).background(MaterialTheme.colorScheme.onSurfaceVariant))
+                            Box(
+                                Modifier.width(28.dp).height(4.dp)
+                                    .clip(RoundedCornerShape(2.dp))
+                                    .background(MaterialTheme.colorScheme.onSurfaceVariant)
+                            )
                         }
                     }
                 }
@@ -285,7 +298,11 @@ private fun ExpressiveBrightness(value: Float, onValueChange: (Float) -> Unit) {
         Text("Brightness", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         Surface(shape = RoundedCornerShape(24.dp), color = MaterialTheme.colorScheme.surfaceContainerHigh) {
             Row(Modifier.fillMaxWidth().height(48.dp), verticalAlignment = Alignment.CenterVertically) {
-                Slider(value = value.coerceIn(.01f, 1f), onValueChange = onValueChange, modifier = Modifier.weight(1f).padding(start = 10.dp))
+                Slider(
+                    value = value.coerceIn(.01f, 1f),
+                    onValueChange = onValueChange,
+                    modifier = Modifier.weight(1f).padding(start = 10.dp)
+                )
                 Box(Modifier.width(48.dp).fillMaxHeight(), contentAlignment = Alignment.Center) {
                     Icon(Icons.Default.Brightness6, "Brightness")
                 }
@@ -298,8 +315,15 @@ private fun ExpressiveBrightness(value: Float, onValueChange: (Float) -> Unit) {
 private fun ExpressiveCompactSystemTile(tile: SystemTile, modifier: Modifier, onClick: () -> Unit) {
     val container = if (tile.active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceContainerHigh
     val content = if (tile.active) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface
-    Surface(modifier.aspectRatio(1f).clickable(onClick = onClick), shape = RoundedCornerShape(26.dp), color = container, contentColor = content) {
-        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Icon(tile.icon, tile.label, Modifier.size(27.dp)) }
+    Surface(
+        modifier.aspectRatio(1f).clickable(onClick = onClick),
+        shape = RoundedCornerShape(26.dp),
+        color = container,
+        contentColor = content
+    ) {
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Icon(tile.icon, tile.label, Modifier.size(27.dp))
+        }
     }
 }
 
@@ -307,8 +331,17 @@ private fun ExpressiveCompactSystemTile(tile: SystemTile, modifier: Modifier, on
 private fun ExpressiveWideSystemTile(tile: SystemTile, modifier: Modifier, onClick: () -> Unit) {
     val container = if (tile.active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceContainerHigh
     val content = if (tile.active) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface
-    Surface(modifier.height(68.dp).clickable(onClick = onClick), shape = RoundedCornerShape(30.dp), color = container, contentColor = content) {
-        Row(Modifier.fillMaxSize().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(11.dp)) {
+    Surface(
+        modifier.height(68.dp).clickable(onClick = onClick),
+        shape = RoundedCornerShape(30.dp),
+        color = container,
+        contentColor = content
+    ) {
+        Row(
+            Modifier.fillMaxSize().padding(horizontal = 16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(11.dp)
+        ) {
             Icon(tile.icon, null, Modifier.size(24.dp))
             Text(tile.label, style = MaterialTheme.typography.labelLarge, maxLines = 1)
         }
@@ -317,24 +350,80 @@ private fun ExpressiveWideSystemTile(tile: SystemTile, modifier: Modifier, onCli
 
 @Composable
 private fun CustomShadeTile(tile: PixelShadeTile, modifier: Modifier, onClick: () -> Unit) {
+    val context = LocalContext.current
     val height = if (tile.heightUnits >= 2) 134.dp else 64.dp
     Surface(
         modifier = modifier.height(height).clickable(onClick = onClick),
-        shape = RoundedCornerShape(PixelShadeConfig.tileCornerDp(LocalContext.current).dp.coerceAtMost(32.dp)),
+        shape = RoundedCornerShape(PixelShadeConfig.tileCornerDp(context).dp.coerceAtMost(32.dp)),
         color = MaterialTheme.colorScheme.surfaceContainerHigh,
         contentColor = MaterialTheme.colorScheme.onSurface
     ) {
         if (tile.widthUnits == 1) {
-            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Icon(iconForTile(tile), tile.label, Modifier.size(25.dp)) }
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                CustomTileArtwork(tile, Modifier.size(26.dp))
+            }
         } else {
-            Row(Modifier.fillMaxSize().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                Icon(iconForTile(tile), null, Modifier.size(24.dp))
+            Row(
+                Modifier.fillMaxSize().padding(horizontal = 16.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                CustomTileArtwork(tile, Modifier.size(27.dp))
                 Column {
                     Text(tile.label, style = MaterialTheme.typography.labelLarge, maxLines = 1)
-                    Text(tile.type.replaceFirstChar { it.uppercase() }, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(
+                        tile.type.replaceFirstChar { it.uppercase() },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun CustomTileArtwork(tile: PixelShadeTile, modifier: Modifier = Modifier) {
+    val context = LocalContext.current
+    val contentColor = LocalContentColor.current
+    val component = remember(tile.type, tile.target) {
+        if (tile.type == "activity") ComponentName.unflattenFromString(tile.target) else null
+    }
+    val targetPackage = when (tile.type) {
+        "app" -> tile.target
+        "activity" -> component?.packageName
+        else -> null
+    }
+    when (tile.iconSource) {
+        "material" -> Icon(materialTileIcon(tile.iconValue), tile.label, modifier)
+        "pack" -> {
+            val drawable = remember(tile.iconValue, tile.target) {
+                IconPackResolver.resolveSelection(context, tile.iconValue, targetPackage, component)
+            }
+            if (drawable != null) {
+                AppOrDrawableIcon(
+                    packageName = targetPackage,
+                    override = drawable,
+                    tint = if (tile.monochrome) contentColor else null,
+                    modifier = modifier
+                )
+            } else {
+                Icon(materialTileIcon("apps"), tile.label, modifier)
+            }
+        }
+        "app" -> {
+            if (!targetPackage.isNullOrBlank()) {
+                AppOrDrawableIcon(
+                    packageName = targetPackage,
+                    override = null,
+                    tint = if (tile.monochrome) contentColor else null,
+                    modifier = modifier
+                )
+            } else {
+                Icon(materialTileIcon(if (tile.type == "website") "language" else "apps"), tile.label, modifier)
+            }
+        }
+        else -> Icon(materialTileIcon(tile.iconValue), tile.label, modifier)
     }
 }
 
@@ -346,11 +435,20 @@ private fun ShadeNotificationCard(item: ShadeNotification, onOpen: () -> Unit) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Surface(shape = RoundedCornerShape(12.dp), color = MaterialTheme.colorScheme.secondaryContainer) {
                     Box(Modifier.size(32.dp), contentAlignment = Alignment.Center) {
-                        Text(item.appLabel.take(1).uppercase(), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSecondaryContainer)
+                        Text(
+                            item.appLabel.take(1).uppercase(),
+                            style = MaterialTheme.typography.labelLarge,
+                            color = MaterialTheme.colorScheme.onSecondaryContainer
+                        )
                     }
                 }
                 Spacer(Modifier.width(10.dp))
-                Text(item.appLabel, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
+                Text(
+                    item.appLabel,
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.weight(1f)
+                )
                 if (item.clearable) {
                     IconButton(onClick = { PixelShadeNotificationStore.dismiss(item.key) }, modifier = Modifier.size(34.dp)) {
                         Icon(Icons.Default.Close, "Dismiss", Modifier.size(18.dp))
@@ -358,11 +456,15 @@ private fun ShadeNotificationCard(item: ShadeNotification, onOpen: () -> Unit) {
                 }
             }
             Text(item.title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-            if (item.text.isNotBlank()) Text(item.text, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            if (item.text.isNotBlank()) {
+                Text(item.text, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
             if (item.actions.isNotEmpty()) {
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                     item.actions.take(3).forEach { action ->
-                        TextButton(onClick = { PixelShadeNotificationStore.runAction(action) }) { Text(action.title, maxLines = 1) }
+                        TextButton(onClick = { PixelShadeNotificationStore.runAction(action) }) {
+                            Text(action.title, maxLines = 1)
+                        }
                     }
                 }
             }
@@ -372,17 +474,37 @@ private fun ShadeNotificationCard(item: ShadeNotification, onOpen: () -> Unit) {
 
 @Composable
 private fun MediaNotificationCard(item: ShadeNotification, onOpen: () -> Unit) {
-    Surface(Modifier.fillMaxWidth().clickable(onClick = onOpen), shape = RoundedCornerShape(30.dp), color = MaterialTheme.colorScheme.secondaryContainer) {
+    Surface(
+        Modifier.fillMaxWidth().clickable(onClick = onOpen),
+        shape = RoundedCornerShape(30.dp),
+        color = MaterialTheme.colorScheme.secondaryContainer
+    ) {
         Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Text(item.appLabel, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = .75f))
-            Text(item.title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSecondaryContainer)
-            if (item.text.isNotBlank()) Text(item.text, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = .8f))
+            Text(
+                item.appLabel,
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = .75f)
+            )
+            Text(
+                item.title,
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onSecondaryContainer
+            )
+            if (item.text.isNotBlank()) {
+                Text(
+                    item.text,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = .8f)
+                )
+            }
             if (item.actions.isNotEmpty()) {
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
                     item.actions.take(5).forEach { action ->
-                        FilledTonalButton(onClick = { PixelShadeNotificationStore.runAction(action) }, contentPadding = PaddingValues(horizontal = 12.dp)) {
-                            Text(action.title, maxLines = 1)
-                        }
+                        FilledTonalButton(
+                            onClick = { PixelShadeNotificationStore.runAction(action) },
+                            contentPadding = PaddingValues(horizontal = 12.dp)
+                        ) { Text(action.title, maxLines = 1) }
                     }
                 }
             }
@@ -416,23 +538,4 @@ private fun customTileRows(tiles: List<PixelShadeTile>): List<List<PixelShadeTil
 private fun safeLaunch(context: android.content.Context, intent: Intent) {
     runCatching { context.startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
         .recoverCatching { context.startActivity(Intent(Settings.ACTION_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
-}
-
-private fun iconForTile(tile: PixelShadeTile): ImageVector = when (tile.iconValue) {
-    "bolt" -> Icons.Default.Bolt
-    "flashlight" -> Icons.Default.FlashlightOn
-    "bluetooth" -> Icons.Default.Bluetooth
-    "wifi" -> Icons.Default.Wifi
-    "link" -> Icons.Default.Link
-    "language" -> Icons.Default.Language
-    "gamepad" -> Icons.Default.SportsEsports
-    "terminal" -> Icons.Default.Terminal
-    "settings" -> Icons.Default.Settings
-    "star" -> Icons.Default.Star
-    "camera" -> Icons.Default.PhotoCamera
-    else -> when (tile.type) {
-        "website" -> Icons.Default.Language
-        "activity" -> Icons.Default.OpenInNew
-        else -> Icons.Default.Apps
-    }
 }
