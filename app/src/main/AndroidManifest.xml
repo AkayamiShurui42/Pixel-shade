@@ -20,6 +20,7 @@
         <intent><action android:name="com.gau.go.launcherex.theme" /></intent>
         <intent><action android:name="com.novalauncher.THEME" /></intent>
         <intent><action android:name="com.anddoes.launcher.THEME" /></intent>
+        <intent><action android:name="com.android.systemui.action.SEPARATE_QS_PLUGIN" /></intent>
     </queries>
 
     <application android:allowBackup="true" android:label="Pixel Shade" android:theme="@style/Theme.PixelShade">
