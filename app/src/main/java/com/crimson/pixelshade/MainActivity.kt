@@ -20,6 +20,7 @@ import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -397,7 +398,9 @@ private fun SettingsExpansionCard(
                     Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                     Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
-                IconButton(onClick = onToggle) { Icon(if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore, null) }
+                IconButton(onClick = onToggle) {
+                    Icon(if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore, null)
+                }
             }
             if (expanded) content()
         }
@@ -424,6 +427,8 @@ private fun PermissionRow(label: String, granted: Boolean, onGrant: () -> Unit) 
                 color = if (granted) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
-        FilledTonalButton(onClick = onGrant, enabled = !granted) { Text(if (granted) "Done" else "Grant") }
+        FilledTonalButton(onClick = onGrant, enabled = !granted) {
+            Text(if (granted) "Done" else "Grant")
+        }
     }
 }
