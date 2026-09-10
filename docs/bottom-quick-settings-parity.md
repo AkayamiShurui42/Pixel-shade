@@ -17,8 +17,17 @@ Relevant controls to support:
 - Left trigger: enabled, length/height, touch size/width, vertical position.
 - Right trigger: enabled, length/height, touch size/width, vertical position.
 - Pull distance / activation threshold.
+- Handle blacklist, once Pixel Shade has a reliable foreground-app/package observation path.
+- Full-length handle visual mode, if exposed as an actual rendered-handle option rather than a dead switch.
 
-Existing Pixel Shade geometry maps directly to most of this model; RC81 adds the missing bottom-trigger and environment-rule configuration keys.
+Gesture semantics from the supplied reference are explicit:
+
+- top handle -> swipe downward to open;
+- bottom handle -> swipe upward to open;
+- left handle -> swipe upward to open;
+- right handle -> swipe upward to open.
+
+Existing Pixel Shade geometry maps directly to most of this model; RC81 adds the missing bottom-trigger and environment-rule configuration keys. Do not substitute inward horizontal swipes for the side-handle upward gesture.
 
 ## Layout
 
@@ -38,6 +47,54 @@ Relevant controls to support:
 - 12/24-hour clock selection.
 
 Pixel Shade should retain the Pixel-style mixed compact/wide tile model rather than reproducing Bottom Quick Settings' exact grid renderer.
+
+## Colors
+
+The reference exposes solid/base colors independently from tile-style effects. Pixel Shade should preserve the same conceptual separation so Material You / Dynamic / Hybrid / Manual theming remains composable with optional tile gradients.
+
+Relevant element colors:
+
+- Panel background.
+- Notification background.
+- Tile background, enabled.
+- Tile background, disabled.
+- Tile icon, enabled.
+- Tile icon, disabled.
+- Tile text.
+- Header text.
+- Footer background.
+- Footer text.
+- Handle color.
+- Slider icon.
+- Slider thumb.
+- Slider progress/fill.
+- Panel information-row text.
+- Reply-box color, if inline reply UI is implemented.
+- Overall/background color where Pixel Shade renders outside the panel surface.
+
+Implementation rule: Dynamic mode should derive these from Material You where possible; Hybrid may override selected surfaces/accents; Manual may override all implemented element colors. Do not make gradient settings mutate or replace the stored solid/base color values.
+
+## Tile Styles
+
+Tile Styles is a separate layer from Colors.
+
+Relevant controls:
+
+- Enabled-tile style preview.
+- Disabled-tile style preview.
+- Enable/disable tile gradients.
+- Tile icon shape.
+- Enabled-tile gradient start color.
+- Enabled-tile gradient end color.
+- Enabled-tile gradient direction in degrees.
+- Disabled-tile gradient start color.
+- Disabled-tile gradient end color.
+- Disabled-tile gradient direction in degrees.
+- Preset gradients as convenience values that populate the same underlying start/end/direction fields.
+
+When gradients are disabled, tiles use the solid enabled/disabled colors from the Colors system. When gradients are enabled, the gradient is the tile-background rendering layer; icon/text colors remain independently controlled.
+
+Do not expose an icon-shape choice until the runtime tile renderer applies it consistently to built-in and custom tiles.
 
 ## Notifications
 
@@ -98,5 +155,6 @@ RC81 priorities:
 
 1. Preserve working OxygenOS shade suppression, Shizuku/Shizuku+ integration, custom tiles, notifications, and media handling.
 2. Add meaningful handle/layout/notification/behavior controls from the reference.
-3. Fix the device-observed brightness slider and notification/media presentation.
-4. Run CI and device acceptance testing before merging to main.
+3. Add the granular color model and separate tile-style/gradient model without breaking Material You modes.
+4. Fix the device-observed brightness slider and notification/media presentation.
+5. Run CI and device acceptance testing before merging to main.
