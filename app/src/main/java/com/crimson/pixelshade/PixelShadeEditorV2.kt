@@ -30,6 +30,7 @@ enum class PixelShadeEditorTab(val label: String, val icon: ImageVector) {
     HANDLE("Handle", Icons.Default.SwipeDown),
     LAYOUT("Layout", Icons.Default.DashboardCustomize),
     COLORS("Colors", Icons.Default.Palette),
+    TILE_STYLES("Tile Styles", Icons.Default.Gradient),
     SLIDERS("Sliders", Icons.Default.Tune),
     NOTIFICATIONS("Notifications", Icons.Default.Notifications),
     MOTION("Motion", Icons.Default.Animation),
@@ -120,6 +121,22 @@ fun PixelShadeEditorV2(
     var sliderIconHex by remember { mutableStateOf(PixelShadeThemeEngine.storedColor(context, PixelShadeThemeEngine.KEY_SLIDER_ICON) ?: colorToHex(scheme.onPrimary)) }
     var sliderThumbHex by remember { mutableStateOf(PixelShadeThemeEngine.storedColor(context, PixelShadeThemeEngine.KEY_SLIDER_THUMB) ?: colorToHex(scheme.primary)) }
     var sliderProgressHex by remember { mutableStateOf(PixelShadeThemeEngine.storedColor(context, PixelShadeThemeEngine.KEY_SLIDER_PROGRESS) ?: colorToHex(scheme.primary)) }
+
+    var gradientsEnabled by remember { mutableStateOf(PixelShadeTileStyle.gradientsEnabled(context)) }
+    var activeGradientStartHex by remember {
+        mutableStateOf(prefs.getString(PixelShadeTileStyle.KEY_ACTIVE_GRADIENT_START, null) ?: activeTileHex)
+    }
+    var activeGradientEndHex by remember {
+        mutableStateOf(prefs.getString(PixelShadeTileStyle.KEY_ACTIVE_GRADIENT_END, null) ?: brightnessFillHex)
+    }
+    var activeGradientDirection by remember { mutableFloatStateOf(PixelShadeTileStyle.activeGradientDirection(context)) }
+    var inactiveGradientStartHex by remember {
+        mutableStateOf(prefs.getString(PixelShadeTileStyle.KEY_INACTIVE_GRADIENT_START, null) ?: inactiveTileHex)
+    }
+    var inactiveGradientEndHex by remember {
+        mutableStateOf(prefs.getString(PixelShadeTileStyle.KEY_INACTIVE_GRADIENT_END, null) ?: inactiveTileHex)
+    }
+    var inactiveGradientDirection by remember { mutableFloatStateOf(PixelShadeTileStyle.inactiveGradientDirection(context)) }
 
     fun currentPalette(): PixelShadePalette {
         val dynamic = PixelShadePalette(
@@ -225,6 +242,10 @@ fun PixelShadeEditorV2(
             PixelShadeThemeEngine.KEY_SLIDER_PROGRESS to sliderProgressHex
         ).forEach { (key, value) -> PixelShadeThemeEngine.putColor(context, key, value) }
 
+        PixelShadeTileStyle.setGradientsEnabled(context, gradientsEnabled)
+        PixelShadeTileStyle.putGradient(context, true, activeGradientStartHex, activeGradientEndHex, activeGradientDirection)
+        PixelShadeTileStyle.putGradient(context, false, inactiveGradientStartHex, inactiveGradientEndHex, inactiveGradientDirection)
+
         context.startService(Intent(context, PixelShadeTriggerService::class.java).setAction("com.crimson.pixelshade.REFRESH_CONFIG"))
         PixelShadeAccessibilityService.requestTriggerRefresh()
         StatusBarSuppression.sync(context)
@@ -274,6 +295,13 @@ fun PixelShadeEditorV2(
         autoCloseAfterClear = false
         openDuration = 320f
         closeDuration = 220f
+        gradientsEnabled = false
+        activeGradientStartHex = activeTileHex
+        activeGradientEndHex = brightnessFillHex
+        activeGradientDirection = 90f
+        inactiveGradientStartHex = inactiveTileHex
+        inactiveGradientEndHex = inactiveTileHex
+        inactiveGradientDirection = 90f
         themeMode = PixelShadeThemeEngine.Mode.DYNAMIC
     }
 
@@ -442,6 +470,34 @@ fun PixelShadeEditorV2(
                         }
                     }
 
+                    PixelShadeEditorTab.TILE_STYLES -> {
+                        EditorSection("Tile Styles", Icons.Default.Gradient) {
+                            EditorSwitch("Enable tile gradients", gradientsEnabled) { gradientsEnabled = it }
+                            Text(
+                                if (gradientsEnabled) "Gradients replace only the tile background layer. Icon and text colors remain controlled by Colors."
+                                else "Gradients are off; enabled and disabled tiles use the solid Colors values.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            if (gradientsEnabled) {
+                                Text("Enabled tile gradient", style = MaterialTheme.typography.titleSmall)
+                                HexColorEditor("Gradient color start", activeGradientStartHex) { activeGradientStartHex = it }
+                                HexColorEditor("Gradient color end", activeGradientEndHex) { activeGradientEndHex = it }
+                                EditorSlider("Direction", activeGradientDirection, 0f..360f, "${activeGradientDirection.roundToInt()}°") { activeGradientDirection = it }
+                                HorizontalDivider()
+                                Text("Disabled tile gradient", style = MaterialTheme.typography.titleSmall)
+                                HexColorEditor("Gradient color start", inactiveGradientStartHex) { inactiveGradientStartHex = it }
+                                HexColorEditor("Gradient color end", inactiveGradientEndHex) { inactiveGradientEndHex = it }
+                                EditorSlider("Direction", inactiveGradientDirection, 0f..360f, "${inactiveGradientDirection.roundToInt()}°") { inactiveGradientDirection = it }
+                            }
+                            Text(
+                                "The reference app also offers an icon-shape selector. Pixel Shade keeps that control hidden for now because the Pixel compact/wide/custom tile geometry does not yet have one consistent icon-container shape to modify.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+
                     PixelShadeEditorTab.SLIDERS -> {
                         EditorSection("Brightness and gestures", Icons.Default.Tune) {
                             EditorSwitch("Horizontal trigger swipe changes brightness", brightnessGesture) { brightnessGesture = it }
@@ -471,7 +527,7 @@ fun PixelShadeEditorV2(
                                 modifier = Modifier.fillMaxWidth()
                             ) { Text("Notification access") }
                             Text(
-                                "Persistent filtering, compact stacking, media-only mode and expansion are now applied by the runtime shade rather than being preview-only options.",
+                                "Persistent filtering, compact stacking, media-only mode and expansion are applied by the runtime shade rather than being preview-only options.",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -480,11 +536,7 @@ fun PixelShadeEditorV2(
 
                     PixelShadeEditorTab.MOTION -> {
                         EditorSection("Pixel motion", Icons.Default.Animation) {
-                            Text(
-                                "These values control the settle phase of the replacement shade.",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
+                            Text("These values control the settle phase of the replacement shade.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             EditorSlider("Open settle", openDuration, 180f..600f, "${openDuration.roundToInt()} ms") { openDuration = it }
                             EditorSlider("Close settle", closeDuration, 120f..420f, "${closeDuration.roundToInt()} ms") { closeDuration = it }
                         }
@@ -600,9 +652,7 @@ private fun InteractivePixel17Preview(
         val previewTouchHeight = triggerHeight.dp.coerceAtMost(56.dp)
 
         Box(
-            Modifier.offset(x = zoneStart, y = offset.dp)
-                .width(zoneWidth)
-                .height(previewTouchHeight)
+            Modifier.offset(x = zoneStart, y = offset.dp).width(zoneWidth).height(previewTouchHeight)
                 .border(2.dp, MaterialTheme.colorScheme.tertiary, RoundedCornerShape(6.dp))
                 .pointerInput(topX, offset, topWidth) {
                     detectDragGestures { change, drag ->
@@ -612,10 +662,7 @@ private fun InteractivePixel17Preview(
                 }
         ) {
             if (visibleHeight > 0f) {
-                Box(
-                    Modifier.fillMaxWidth().height(visibleHeight.dp.coerceAtMost(previewTouchHeight))
-                        .background(MaterialTheme.colorScheme.tertiary.copy(alpha = .65f))
-                )
+                Box(Modifier.fillMaxWidth().height(visibleHeight.dp.coerceAtMost(previewTouchHeight)).background(MaterialTheme.colorScheme.tertiary.copy(alpha = .65f)))
             }
             Text(
                 "trigger",
@@ -624,8 +671,7 @@ private fun InteractivePixel17Preview(
                 color = MaterialTheme.colorScheme.onSurface
             )
             Box(
-                Modifier.align(Alignment.CenterEnd).size(width = 14.dp, height = 30.dp)
-                    .background(MaterialTheme.colorScheme.tertiary, RoundedCornerShape(7.dp))
+                Modifier.align(Alignment.CenterEnd).size(width = 14.dp, height = 30.dp).background(MaterialTheme.colorScheme.tertiary, RoundedCornerShape(7.dp))
                     .pointerInput(topWidth) {
                         detectDragGestures { change, drag ->
                             change.consume()
@@ -634,8 +680,7 @@ private fun InteractivePixel17Preview(
                     }
             )
             Box(
-                Modifier.align(Alignment.BottomCenter).size(width = 34.dp, height = 12.dp)
-                    .background(MaterialTheme.colorScheme.tertiary, RoundedCornerShape(6.dp))
+                Modifier.align(Alignment.BottomCenter).size(width = 34.dp, height = 12.dp).background(MaterialTheme.colorScheme.tertiary, RoundedCornerShape(6.dp))
                     .pointerInput(triggerHeight) {
                         detectDragGestures { change, drag ->
                             change.consume()
@@ -650,18 +695,10 @@ private fun InteractivePixel17Preview(
 @Composable
 private fun PreviewBrightness(palette: PixelShadePalette) {
     Row(Modifier.fillMaxWidth().height(46.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        Box(
-            Modifier.weight(1f).fillMaxHeight().clip(RoundedCornerShape(23.dp)).background(palette.brightnessTrack)
-        ) {
+        Box(Modifier.weight(1f).fillMaxHeight().clip(RoundedCornerShape(23.dp)).background(palette.brightnessTrack)) {
             Box(Modifier.fillMaxHeight().fillMaxWidth(.66f).background(palette.brightnessFill))
-            Surface(
-                modifier = Modifier.align(Alignment.CenterStart).offset(x = 112.dp).size(28.dp),
-                shape = RoundedCornerShape(14.dp),
-                color = palette.brightnessFill
-            ) {
-                Box(contentAlignment = Alignment.Center) {
-                    Icon(Icons.Default.Brightness6, null, Modifier.size(16.dp), tint = palette.activeIcon)
-                }
+            Surface(Modifier.align(Alignment.CenterStart).offset(x = 112.dp).size(28.dp), shape = RoundedCornerShape(14.dp), color = palette.brightnessFill) {
+                Box(contentAlignment = Alignment.Center) { Icon(Icons.Default.Brightness6, null, Modifier.size(16.dp), tint = palette.activeIcon) }
             }
         }
         Surface(Modifier.width(52.dp).fillMaxHeight(), shape = RoundedCornerShape(14.dp), color = palette.inactiveTile) {
@@ -697,13 +734,7 @@ private fun HexColorEditor(label: String, value: String, onValue: (String) -> Un
     val swatch = PixelShadeThemeEngine.parseOr(value, fallback)
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
         Box(Modifier.size(36.dp).clip(RoundedCornerShape(12.dp)).background(swatch).border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(12.dp)))
-        OutlinedTextField(
-            value = value,
-            onValueChange = onValue,
-            label = { Text(label) },
-            singleLine = true,
-            modifier = Modifier.weight(1f)
-        )
+        OutlinedTextField(value = value, onValueChange = onValue, label = { Text(label) }, singleLine = true, modifier = Modifier.weight(1f))
     }
 }
 
