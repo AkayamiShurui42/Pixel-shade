@@ -2,11 +2,17 @@ package com.crimson.pixelshade
 
 import android.content.Context
 import androidx.compose.runtime.Immutable
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.LinearGradientShader
+import androidx.compose.ui.graphics.Shader
+import androidx.compose.ui.graphics.ShaderBrush
+import androidx.compose.ui.graphics.SolidColor
 import kotlin.math.cos
 import kotlin.math.sin
+import kotlin.math.sqrt
 
 object PixelShadeTileStyle {
     const val KEY_GRADIENTS_ENABLED = "tile_style_gradients_enabled"
@@ -110,35 +116,52 @@ fun pixelShadeTileBrushes(
 ): PixelShadeTileBrushes {
     if (!PixelShadeTileStyle.gradientsEnabled(context)) {
         return PixelShadeTileBrushes(
-            active = Brush.linearGradient(listOf(activeFallback, activeFallback)),
-            inactive = Brush.linearGradient(listOf(inactiveFallback, inactiveFallback))
+            active = SolidColor(activeFallback),
+            inactive = SolidColor(inactiveFallback)
         )
     }
 
     return PixelShadeTileBrushes(
-        active = directionalGradient(
-            PixelShadeTileStyle.activeGradientStart(context, activeFallback),
-            PixelShadeTileStyle.activeGradientEnd(context, activeFallback),
-            PixelShadeTileStyle.activeGradientDirection(context)
+        active = DirectionalGradientBrush(
+            startColor = PixelShadeTileStyle.activeGradientStart(context, activeFallback),
+            endColor = PixelShadeTileStyle.activeGradientEnd(context, activeFallback),
+            degrees = PixelShadeTileStyle.activeGradientDirection(context)
         ),
-        inactive = directionalGradient(
-            PixelShadeTileStyle.inactiveGradientStart(context, inactiveFallback),
-            PixelShadeTileStyle.inactiveGradientEnd(context, inactiveFallback),
-            PixelShadeTileStyle.inactiveGradientDirection(context)
+        inactive = DirectionalGradientBrush(
+            startColor = PixelShadeTileStyle.inactiveGradientStart(context, inactiveFallback),
+            endColor = PixelShadeTileStyle.inactiveGradientEnd(context, inactiveFallback),
+            degrees = PixelShadeTileStyle.inactiveGradientDirection(context)
         )
     )
 }
 
-private fun directionalGradient(start: Color, end: Color, degrees: Float): Brush {
-    val radians = Math.toRadians(degrees.toDouble())
-    val dx = cos(radians).toFloat()
-    val dy = sin(radians).toFloat()
-    val extent = 10_000f
-    return Brush.linearGradient(
-        colors = listOf(start, end),
-        start = Offset(-dx * extent, -dy * extent),
-        end = Offset(dx * extent, dy * extent)
-    )
+private class DirectionalGradientBrush(
+    private val startColor: Color,
+    private val endColor: Color,
+    private val degrees: Float
+) : ShaderBrush() {
+    override fun createShader(size: Size): Shader {
+        if (size.width <= 0f || size.height <= 0f) {
+            return LinearGradientShader(
+                from = Offset.Zero,
+                to = Offset(1f, 1f),
+                colors = listOf(startColor, endColor)
+            )
+        }
+
+        val radians = Math.toRadians(degrees.toDouble())
+        val dx = cos(radians).toFloat()
+        val dy = sin(radians).toFloat()
+        val radius = sqrt(size.width * size.width + size.height * size.height) / 2f
+        val centerX = size.width / 2f
+        val centerY = size.height / 2f
+
+        return LinearGradientShader(
+            from = Offset(centerX - dx * radius, centerY - dy * radius),
+            to = Offset(centerX + dx * radius, centerY + dy * radius),
+            colors = listOf(startColor, endColor)
+        )
+    }
 }
 
 private fun Float.normalizeDegrees(): Float {
