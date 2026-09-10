@@ -5,7 +5,7 @@ description: Continue development, debugging, building, and device testing of Ak
 
 # Pixel Shade Development
 
-For any Pixel Shade task, first read `../../../docs/pixel-shade-codex-handoff.md` and `../../../docs/bottom-quick-settings-parity.md` from the repository root context.
+For any Pixel Shade task, first locate the current Git repository root and read `docs/pixel-shade-codex-handoff.md` plus `docs/bottom-quick-settings-parity.md` from that repository. This keeps the same skill working whether Codex discovers the repo-scoped copy or a personal copy installed under `$CODEX_HOME`.
 
 Use the live Git repository and GitHub state as the source of truth for current branches, commits, pull requests, and CI. The dated snapshot in the handoff file is only a restart aid.
 
