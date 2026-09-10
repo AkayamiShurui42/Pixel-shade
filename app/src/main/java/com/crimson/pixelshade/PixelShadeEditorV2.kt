@@ -26,7 +26,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import kotlin.math.roundToInt
 
-
 enum class PixelShadeEditorTab(val label: String, val icon: ImageVector) {
     HANDLE("Handle", Icons.Default.SwipeDown),
     LAYOUT("Layout", Icons.Default.DashboardCustomize),
@@ -47,45 +46,60 @@ fun PixelShadeEditorV2(
     val prefs = remember { PixelShadeConfig.prefs(context) }
     val scheme = MaterialTheme.colorScheme
 
-    val initialTriggerHeight = remember { PixelShadeConfig.triggerHeightDp(context) }
-    val initialVisibleHeight = remember { PixelShadeConfig.triggerVisibleDp(context) }
-    val initialTopWidth = remember { PixelShadeConfig.topWidthPercent(context) }
-    val initialTopX = remember { PixelShadeConfig.topXPercent(context) }
-    val initialOffset = remember { PixelShadeConfig.triggerOffsetDp(context) }
-    val initialPullDistance = remember { PixelShadeConfig.pullDistanceDp(context) }
-    val initialBrightnessGesture = remember { PixelShadeConfig.brightnessEnabled(context) }
-    val initialBrightnessSensitivity = remember { PixelShadeConfig.brightnessSensitivity(context) }
-    val initialSuppressStock = remember { PixelShadeConfig.suppressStockShade(context) }
-    val initialOpacity = remember { PixelShadeConfig.panelOpacity(context) }
-    val initialBlur = remember { PixelShadeConfig.blurRadius(context) }
-    val initialTileCorner = remember { PixelShadeConfig.tileCornerDp(context) }
-    val initialOpenDuration = remember { PixelShadeConfig.openDurationMs(context).toFloat() }
-    val initialCloseDuration = remember { PixelShadeConfig.closeDurationMs(context).toFloat() }
-    val initialLeftEnabled = remember { PixelShadeConfig.leftEnabled(context) }
-    val initialRightEnabled = remember { PixelShadeConfig.rightEnabled(context) }
-    val initialThemeMode = remember { PixelShadeThemeEngine.mode(context) }
+    var triggerHeight by remember { mutableFloatStateOf(PixelShadeConfig.triggerHeightDp(context)) }
+    var visibleHeight by remember { mutableFloatStateOf(PixelShadeConfig.triggerVisibleDp(context)) }
+    var topWidth by remember { mutableFloatStateOf(PixelShadeConfig.topWidthPercent(context)) }
+    var topX by remember { mutableFloatStateOf(PixelShadeConfig.topXPercent(context)) }
+    var offset by remember { mutableFloatStateOf(PixelShadeConfig.triggerOffsetDp(context)) }
+    var pullDistance by remember { mutableFloatStateOf(PixelShadeConfig.pullDistanceDp(context)) }
 
-    var triggerHeight by remember { mutableFloatStateOf(initialTriggerHeight) }
-    var visibleHeight by remember { mutableFloatStateOf(initialVisibleHeight) }
-    var topWidth by remember { mutableFloatStateOf(initialTopWidth) }
-    var topX by remember { mutableFloatStateOf(initialTopX) }
-    var offset by remember { mutableFloatStateOf(initialOffset) }
-    var pullDistance by remember { mutableFloatStateOf(initialPullDistance) }
-    var brightnessGesture by remember { mutableStateOf(initialBrightnessGesture) }
-    var brightnessSensitivity by remember { mutableFloatStateOf(initialBrightnessSensitivity) }
-    var suppressStock by remember { mutableStateOf(initialSuppressStock) }
-    var opacity by remember { mutableFloatStateOf(initialOpacity) }
-    var blur by remember { mutableFloatStateOf(initialBlur) }
-    var tileCorner by remember { mutableFloatStateOf(initialTileCorner) }
-    var openDuration by remember { mutableFloatStateOf(initialOpenDuration) }
-    var closeDuration by remember { mutableFloatStateOf(initialCloseDuration) }
-    var leftEnabled by remember { mutableStateOf(initialLeftEnabled) }
-    var rightEnabled by remember { mutableStateOf(initialRightEnabled) }
+    var bottomEnabled by remember { mutableStateOf(PixelShadeConfig.bottomEnabled(context)) }
+    var bottomWidth by remember { mutableFloatStateOf(PixelShadeConfig.bottomWidthPercent(context)) }
+    var bottomHeight by remember { mutableFloatStateOf(PixelShadeConfig.bottomHeightDp(context)) }
+    var bottomX by remember { mutableFloatStateOf(PixelShadeConfig.bottomXPercent(context)) }
+
+    var leftEnabled by remember { mutableStateOf(PixelShadeConfig.leftEnabled(context)) }
+    var leftWidth by remember { mutableFloatStateOf(PixelShadeConfig.leftWidthDp(context)) }
+    var leftHeight by remember { mutableFloatStateOf(PixelShadeConfig.leftHeightDp(context)) }
+    var leftY by remember { mutableFloatStateOf(PixelShadeConfig.leftYPercent(context)) }
+
+    var rightEnabled by remember { mutableStateOf(PixelShadeConfig.rightEnabled(context)) }
+    var rightWidth by remember { mutableFloatStateOf(PixelShadeConfig.rightWidthDp(context)) }
+    var rightHeight by remember { mutableFloatStateOf(PixelShadeConfig.rightHeightDp(context)) }
+    var rightY by remember { mutableFloatStateOf(PixelShadeConfig.rightYPercent(context)) }
+
+    var hideHandleIcon by remember { mutableStateOf(PixelShadeConfig.hideHandleIcon(context)) }
+    var hideLandscape by remember { mutableStateOf(PixelShadeConfig.hideInLandscape(context)) }
+
+    var brightnessGesture by remember { mutableStateOf(PixelShadeConfig.brightnessEnabled(context)) }
+    var brightnessSensitivity by remember { mutableFloatStateOf(PixelShadeConfig.brightnessSensitivity(context)) }
+
+    var suppressStock by remember { mutableStateOf(PixelShadeConfig.suppressStockShade(context)) }
+    var vibrateOnTouch by remember { mutableStateOf(PixelShadeConfig.vibrateOnTouch(context)) }
+    var autoCloseTile by remember { mutableStateOf(PixelShadeConfig.autoCloseTile(context)) }
+
+    var opacity by remember { mutableFloatStateOf(PixelShadeConfig.panelOpacity(context)) }
+    var blur by remember { mutableFloatStateOf(PixelShadeConfig.blurRadius(context)) }
+    var tileCorner by remember { mutableFloatStateOf(PixelShadeConfig.tileCornerDp(context)) }
+    var panelPadding by remember { mutableFloatStateOf(PixelShadeConfig.panelPaddingDp(context)) }
+    var tileHeight by remember { mutableFloatStateOf(PixelShadeConfig.tileHeightDp(context)) }
+    var showSystemIcons by remember { mutableStateOf(PixelShadeConfig.showSystemIcons(context)) }
+    var showPanelHeader by remember { mutableStateOf(PixelShadeConfig.showPanelHeader(context)) }
+    var showPanelFooter by remember { mutableStateOf(PixelShadeConfig.showPanelFooter(context)) }
+    var hideTileText by remember { mutableStateOf(PixelShadeConfig.hideTileText(context)) }
+    var use24HourClock by remember { mutableStateOf(PixelShadeConfig.use24HourClock(context)) }
+
+    var showNotifications by remember { mutableStateOf(PixelShadeConfig.showNotifications(context)) }
+    var hidePersistent by remember { mutableStateOf(PixelShadeConfig.hidePersistentNotifications(context)) }
+    var onlyMedia by remember { mutableStateOf(PixelShadeConfig.onlyMediaNotifications(context)) }
+    var removeNotificationSpacing by remember { mutableStateOf(PixelShadeConfig.removeNotificationSpacing(context)) }
+    var autoExpandNotifications by remember { mutableStateOf(PixelShadeConfig.autoExpandNotifications(context)) }
+    var autoCloseAfterClear by remember { mutableStateOf(PixelShadeConfig.autoCloseAfterClear(context)) }
+
+    var openDuration by remember { mutableFloatStateOf(PixelShadeConfig.openDurationMs(context).toFloat()) }
+    var closeDuration by remember { mutableFloatStateOf(PixelShadeConfig.closeDurationMs(context).toFloat()) }
     var selectedTab by remember { mutableStateOf(initialTab) }
-    var themeMode by remember { mutableStateOf(initialThemeMode) }
-
-    fun initialColor(key: String, fallback: Color) = PixelShadeThemeEngine.storedColor(context, key)
-        ?: "#%08X".format(fallback.value.toLong() shr 32)
+    var themeMode by remember { mutableStateOf(PixelShadeThemeEngine.mode(context)) }
 
     var panelHex by remember { mutableStateOf(PixelShadeThemeEngine.storedColor(context, PixelShadeThemeEngine.KEY_PANEL) ?: colorToHex(scheme.surface)) }
     var activeTileHex by remember { mutableStateOf(PixelShadeThemeEngine.storedColor(context, PixelShadeThemeEngine.KEY_ACTIVE_TILE) ?: colorToHex(scheme.primary)) }
@@ -96,6 +110,16 @@ fun PixelShadeEditorV2(
     var secondaryTextHex by remember { mutableStateOf(PixelShadeThemeEngine.storedColor(context, PixelShadeThemeEngine.KEY_SECONDARY_TEXT) ?: colorToHex(scheme.onSurfaceVariant)) }
     var brightnessTrackHex by remember { mutableStateOf(PixelShadeThemeEngine.storedColor(context, PixelShadeThemeEngine.KEY_BRIGHTNESS_TRACK) ?: colorToHex(scheme.surfaceContainerHighest)) }
     var brightnessFillHex by remember { mutableStateOf(PixelShadeThemeEngine.storedColor(context, PixelShadeThemeEngine.KEY_BRIGHTNESS_FILL) ?: colorToHex(scheme.primary)) }
+
+    var notificationBackgroundHex by remember { mutableStateOf(PixelShadeThemeEngine.storedColor(context, PixelShadeThemeEngine.KEY_NOTIFICATION_BACKGROUND) ?: colorToHex(scheme.surfaceContainerHigh)) }
+    var tileTextHex by remember { mutableStateOf(PixelShadeThemeEngine.storedColor(context, PixelShadeThemeEngine.KEY_TILE_TEXT) ?: colorToHex(scheme.onSurface)) }
+    var headerTextHex by remember { mutableStateOf(PixelShadeThemeEngine.storedColor(context, PixelShadeThemeEngine.KEY_HEADER_TEXT) ?: colorToHex(scheme.onSurface)) }
+    var footerBackgroundHex by remember { mutableStateOf(PixelShadeThemeEngine.storedColor(context, PixelShadeThemeEngine.KEY_FOOTER_BACKGROUND) ?: "#00000000") }
+    var footerTextHex by remember { mutableStateOf(PixelShadeThemeEngine.storedColor(context, PixelShadeThemeEngine.KEY_FOOTER_TEXT) ?: colorToHex(scheme.onSurface)) }
+    var handleHex by remember { mutableStateOf(PixelShadeThemeEngine.storedColor(context, PixelShadeThemeEngine.KEY_HANDLE) ?: colorToHex(scheme.onSurfaceVariant)) }
+    var sliderIconHex by remember { mutableStateOf(PixelShadeThemeEngine.storedColor(context, PixelShadeThemeEngine.KEY_SLIDER_ICON) ?: colorToHex(scheme.onPrimary)) }
+    var sliderThumbHex by remember { mutableStateOf(PixelShadeThemeEngine.storedColor(context, PixelShadeThemeEngine.KEY_SLIDER_THUMB) ?: colorToHex(scheme.primary)) }
+    var sliderProgressHex by remember { mutableStateOf(PixelShadeThemeEngine.storedColor(context, PixelShadeThemeEngine.KEY_SLIDER_PROGRESS) ?: colorToHex(scheme.primary)) }
 
     fun currentPalette(): PixelShadePalette {
         val dynamic = PixelShadePalette(
@@ -139,18 +163,46 @@ fun PixelShadeEditorV2(
             .putFloat(PixelShadeConfig.KEY_TOP_X_PERCENT, topX)
             .putFloat(PixelShadeConfig.KEY_TRIGGER_OFFSET_DP, offset)
             .putFloat(PixelShadeConfig.KEY_PULL_DISTANCE_DP, pullDistance)
+            .putBoolean(PixelShadeConfig.KEY_BOTTOM_ENABLED, bottomEnabled)
+            .putFloat(PixelShadeConfig.KEY_BOTTOM_WIDTH_PERCENT, bottomWidth)
+            .putFloat(PixelShadeConfig.KEY_BOTTOM_HEIGHT_DP, bottomHeight)
+            .putFloat(PixelShadeConfig.KEY_BOTTOM_X_PERCENT, bottomX)
+            .putBoolean(PixelShadeConfig.KEY_LEFT_ENABLED, leftEnabled)
+            .putFloat(PixelShadeConfig.KEY_LEFT_WIDTH_DP, leftWidth)
+            .putFloat(PixelShadeConfig.KEY_LEFT_HEIGHT_DP, leftHeight)
+            .putFloat(PixelShadeConfig.KEY_LEFT_Y_PERCENT, leftY)
+            .putBoolean(PixelShadeConfig.KEY_RIGHT_ENABLED, rightEnabled)
+            .putFloat(PixelShadeConfig.KEY_RIGHT_WIDTH_DP, rightWidth)
+            .putFloat(PixelShadeConfig.KEY_RIGHT_HEIGHT_DP, rightHeight)
+            .putFloat(PixelShadeConfig.KEY_RIGHT_Y_PERCENT, rightY)
+            .putBoolean(PixelShadeConfig.KEY_HIDE_HANDLE_ICON, hideHandleIcon)
+            .putBoolean(PixelShadeConfig.KEY_HIDE_IN_LANDSCAPE, hideLandscape)
             .putBoolean(PixelShadeConfig.KEY_BRIGHTNESS_ENABLED, brightnessGesture)
             .putFloat(PixelShadeConfig.KEY_BRIGHTNESS_SENSITIVITY, brightnessSensitivity)
             .putBoolean(PixelShadeConfig.KEY_SUPPRESS_STOCK_SHADE, suppressStock)
+            .putBoolean(PixelShadeConfig.KEY_VIBRATE_ON_TOUCH, vibrateOnTouch)
+            .putBoolean(PixelShadeConfig.KEY_AUTO_CLOSE_TILE, autoCloseTile)
             .putFloat(PixelShadeConfig.KEY_PANEL_OPACITY, opacity)
             .putFloat(PixelShadeConfig.KEY_BLUR_RADIUS, blur)
             .putFloat(PixelShadeConfig.KEY_TILE_CORNER_DP, tileCorner)
+            .putFloat(PixelShadeConfig.KEY_PANEL_PADDING_DP, panelPadding)
+            .putFloat(PixelShadeConfig.KEY_TILE_HEIGHT_DP, tileHeight)
+            .putBoolean(PixelShadeConfig.KEY_SHOW_SYSTEM_ICONS, showSystemIcons)
+            .putBoolean(PixelShadeConfig.KEY_SHOW_PANEL_HEADER, showPanelHeader)
+            .putBoolean(PixelShadeConfig.KEY_SHOW_PANEL_FOOTER, showPanelFooter)
+            .putBoolean(PixelShadeConfig.KEY_HIDE_TILE_TEXT, hideTileText)
+            .putBoolean(PixelShadeConfig.KEY_USE_24_HOUR_CLOCK, use24HourClock)
+            .putBoolean(PixelShadeConfig.KEY_SHOW_NOTIFICATIONS, showNotifications)
+            .putBoolean(PixelShadeConfig.KEY_HIDE_PERSISTENT_NOTIFICATIONS, hidePersistent)
+            .putBoolean(PixelShadeConfig.KEY_ONLY_MEDIA_NOTIFICATIONS, onlyMedia)
+            .putBoolean(PixelShadeConfig.KEY_REMOVE_NOTIFICATION_SPACING, removeNotificationSpacing)
+            .putBoolean(PixelShadeConfig.KEY_AUTO_EXPAND_NOTIFICATIONS, autoExpandNotifications)
+            .putBoolean(PixelShadeConfig.KEY_AUTO_CLOSE_AFTER_CLEAR, autoCloseAfterClear)
             .putInt(PixelShadeConfig.KEY_OPEN_DURATION_MS, openDuration.toInt())
             .putInt(PixelShadeConfig.KEY_CLOSE_DURATION_MS, closeDuration.toInt())
-            .putBoolean(PixelShadeConfig.KEY_LEFT_ENABLED, leftEnabled)
-            .putBoolean(PixelShadeConfig.KEY_RIGHT_ENABLED, rightEnabled)
             .putString(PixelShadeConfig.KEY_OPEN_ANIMATION, "pixel17")
             .apply()
+
         PixelShadeThemeEngine.setMode(context, themeMode)
         listOf(
             PixelShadeThemeEngine.KEY_PANEL to panelHex,
@@ -161,8 +213,18 @@ fun PixelShadeEditorV2(
             PixelShadeThemeEngine.KEY_PRIMARY_TEXT to primaryTextHex,
             PixelShadeThemeEngine.KEY_SECONDARY_TEXT to secondaryTextHex,
             PixelShadeThemeEngine.KEY_BRIGHTNESS_TRACK to brightnessTrackHex,
-            PixelShadeThemeEngine.KEY_BRIGHTNESS_FILL to brightnessFillHex
+            PixelShadeThemeEngine.KEY_BRIGHTNESS_FILL to brightnessFillHex,
+            PixelShadeThemeEngine.KEY_NOTIFICATION_BACKGROUND to notificationBackgroundHex,
+            PixelShadeThemeEngine.KEY_TILE_TEXT to tileTextHex,
+            PixelShadeThemeEngine.KEY_HEADER_TEXT to headerTextHex,
+            PixelShadeThemeEngine.KEY_FOOTER_BACKGROUND to footerBackgroundHex,
+            PixelShadeThemeEngine.KEY_FOOTER_TEXT to footerTextHex,
+            PixelShadeThemeEngine.KEY_HANDLE to handleHex,
+            PixelShadeThemeEngine.KEY_SLIDER_ICON to sliderIconHex,
+            PixelShadeThemeEngine.KEY_SLIDER_THUMB to sliderThumbHex,
+            PixelShadeThemeEngine.KEY_SLIDER_PROGRESS to sliderProgressHex
         ).forEach { (key, value) -> PixelShadeThemeEngine.putColor(context, key, value) }
+
         context.startService(Intent(context, PixelShadeTriggerService::class.java).setAction("com.crimson.pixelshade.REFRESH_CONFIG"))
         PixelShadeAccessibilityService.requestTriggerRefresh()
         StatusBarSuppression.sync(context)
@@ -175,16 +237,43 @@ fun PixelShadeEditorV2(
         topX = 50f
         offset = 0f
         pullDistance = 28f
+        bottomEnabled = false
+        bottomWidth = 100f
+        bottomHeight = 12f
+        bottomX = 50f
+        leftEnabled = false
+        leftWidth = 18f
+        leftHeight = 180f
+        leftY = 40f
+        rightEnabled = false
+        rightWidth = 18f
+        rightHeight = 180f
+        rightY = 40f
+        hideHandleIcon = false
+        hideLandscape = false
         brightnessGesture = true
         brightnessSensitivity = 1f
         suppressStock = true
+        vibrateOnTouch = true
+        autoCloseTile = false
         opacity = .92f
         blur = 24f
         tileCorner = 24f
+        panelPadding = 18f
+        tileHeight = 62f
+        showSystemIcons = true
+        showPanelHeader = true
+        showPanelFooter = true
+        hideTileText = false
+        use24HourClock = false
+        showNotifications = true
+        hidePersistent = false
+        onlyMedia = false
+        removeNotificationSpacing = false
+        autoExpandNotifications = true
+        autoCloseAfterClear = false
         openDuration = 320f
         closeDuration = 220f
-        leftEnabled = false
-        rightEnabled = false
         themeMode = PixelShadeThemeEngine.Mode.DYNAMIC
     }
 
@@ -245,31 +334,69 @@ fun PixelShadeEditorV2(
             ) {
                 when (selectedTab) {
                     PixelShadeEditorTab.HANDLE -> {
-                        EditorSection("Trigger handle", Icons.Default.SwipeDown) {
-                            Text("Drag the outlined trigger directly in the preview. Drag its right handle to resize width and its lower handle to resize the touch height.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        EditorSection("Trigger handles", Icons.Default.SwipeDown) {
+                            Text(
+                                "Top opens downward. Bottom, left and right handles open with an upward swipe. Hiding the handle icon keeps the touch target active.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            EditorSwitch("Hide handle icon", hideHandleIcon) { hideHandleIcon = it }
+                            EditorSwitch("Hide handles in landscape", hideLandscape) { hideLandscape = it }
+                            HorizontalDivider()
+                            Text("Top handle", style = MaterialTheme.typography.titleSmall)
                             EditorSlider("Touch height", triggerHeight, 1f..120f, "${triggerHeight.roundToInt()} dp") { triggerHeight = it; visibleHeight = visibleHeight.coerceAtMost(it) }
                             EditorSlider("Visible strip", visibleHeight, 0f..24f, "${visibleHeight.roundToInt()} dp") { visibleHeight = it.coerceAtMost(triggerHeight) }
-                            EditorSlider("Width", topWidth, 10f..100f, "${topWidth.roundToInt()}%") { topWidth = it }
-                            EditorSlider("Horizontal position", topX, 0f..100f, "${topX.roundToInt()}%") { topX = it }
+                            EditorSlider("Length", topWidth, 10f..100f, "${topWidth.roundToInt()}%") { topWidth = it }
+                            EditorSlider("Position", topX, 0f..100f, "${topX.roundToInt()}%") { topX = it }
                             EditorSlider("Vertical offset", offset, 0f..120f, "${offset.roundToInt()} dp") { offset = it }
                             EditorSlider("Pull distance", pullDistance, 8f..180f, "${pullDistance.roundToInt()} dp") { pullDistance = it }
-                            EditorSwitch("Left edge trigger", leftEnabled) { leftEnabled = it }
-                            EditorSwitch("Right edge trigger", rightEnabled) { rightEnabled = it }
+                            HorizontalDivider()
+                            Text("Bottom handle", style = MaterialTheme.typography.titleSmall)
+                            EditorSwitch("Enable bottom handle", bottomEnabled) { bottomEnabled = it }
+                            if (bottomEnabled) {
+                                EditorSlider("Length", bottomWidth, 10f..100f, "${bottomWidth.roundToInt()}%") { bottomWidth = it }
+                                EditorSlider("Size", bottomHeight, 2f..64f, "${bottomHeight.roundToInt()} dp") { bottomHeight = it }
+                                EditorSlider("Position", bottomX, 0f..100f, "${bottomX.roundToInt()}%") { bottomX = it }
+                            }
+                            HorizontalDivider()
+                            Text("Left handle", style = MaterialTheme.typography.titleSmall)
+                            EditorSwitch("Enable left handle", leftEnabled) { leftEnabled = it }
+                            if (leftEnabled) {
+                                EditorSlider("Length", leftHeight, 40f..900f, "${leftHeight.roundToInt()} dp") { leftHeight = it }
+                                EditorSlider("Size", leftWidth, 2f..64f, "${leftWidth.roundToInt()} dp") { leftWidth = it }
+                                EditorSlider("Position", leftY, 0f..100f, "${leftY.roundToInt()}%") { leftY = it }
+                            }
+                            HorizontalDivider()
+                            Text("Right handle", style = MaterialTheme.typography.titleSmall)
+                            EditorSwitch("Enable right handle", rightEnabled) { rightEnabled = it }
+                            if (rightEnabled) {
+                                EditorSlider("Length", rightHeight, 40f..900f, "${rightHeight.roundToInt()} dp") { rightHeight = it }
+                                EditorSlider("Size", rightWidth, 2f..64f, "${rightWidth.roundToInt()} dp") { rightWidth = it }
+                                EditorSlider("Position", rightY, 0f..100f, "${rightY.roundToInt()}%") { rightY = it }
+                            }
                         }
                     }
+
                     PixelShadeEditorTab.LAYOUT -> {
                         EditorSection("Pixel 17 layout", Icons.Default.DashboardCustomize) {
-                            Text("The shade uses a four-unit Pixel-style grid: compact 1×1 tiles and 2×1 labeled tiles. Custom tiles keep their selected 1×1, 2×1 or 4×1 span.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             FilledTonalButton(onClick = onOpenTiles, modifier = Modifier.fillMaxWidth()) {
                                 Icon(Icons.Default.GridView, null)
                                 Spacer(Modifier.width(8.dp))
                                 Text("Edit tiles and shortcuts")
                             }
                             EditorSlider("Tile corner radius", tileCorner, 12f..32f, "${tileCorner.roundToInt()} dp") { tileCorner = it }
+                            EditorSlider("Tile height", tileHeight, 44f..96f, "${tileHeight.roundToInt()} dp") { tileHeight = it }
+                            EditorSlider("Panel padding", panelPadding, 8f..40f, "${panelPadding.roundToInt()} dp") { panelPadding = it }
                             EditorSlider("Panel opacity", opacity, .45f..1f, "${(opacity * 100).roundToInt()}%") { opacity = it }
                             EditorSlider("Background blur", blur, 0f..80f, "${blur.roundToInt()} dp") { blur = it }
+                            EditorSwitch("Show system icons", showSystemIcons) { showSystemIcons = it }
+                            EditorSwitch("Show panel header", showPanelHeader) { showPanelHeader = it }
+                            EditorSwitch("Show panel footer", showPanelFooter) { showPanelFooter = it }
+                            EditorSwitch("Hide tile text", hideTileText) { hideTileText = it }
+                            EditorSwitch("Use 24-hour clock", use24HourClock) { use24HourClock = it }
                         }
                     }
+
                     PixelShadeEditorTab.COLORS -> {
                         EditorSection("Theme engine", Icons.Default.Palette) {
                             SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
@@ -284,55 +411,95 @@ fun PixelShadeEditorV2(
                             Text(
                                 when (themeMode) {
                                     PixelShadeThemeEngine.Mode.DYNAMIC -> "Dynamic follows the current Material You wallpaper scheme."
-                                    PixelShadeThemeEngine.Mode.HYBRID -> "Hybrid keeps dynamic text/icons but lets you override the panel, tiles and accent."
-                                    PixelShadeThemeEngine.Mode.MANUAL -> "Manual exposes every shade color independently."
+                                    PixelShadeThemeEngine.Mode.HYBRID -> "Hybrid keeps dynamic text/icons while allowing the major surfaces and accent to be overridden."
+                                    PixelShadeThemeEngine.Mode.MANUAL -> "Manual exposes every color that the current runtime renderer actually consumes."
                                 },
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                             if (themeMode != PixelShadeThemeEngine.Mode.DYNAMIC) {
                                 HexColorEditor("Panel background", panelHex) { panelHex = it }
-                                HexColorEditor("Active tile", activeTileHex) { activeTileHex = it }
-                                HexColorEditor("Inactive tile", inactiveTileHex) { inactiveTileHex = it }
+                                HexColorEditor("Tile background (enabled)", activeTileHex) { activeTileHex = it }
+                                HexColorEditor("Tile background (disabled)", inactiveTileHex) { inactiveTileHex = it }
                                 HexColorEditor("Brightness fill", brightnessFillHex) { brightnessFillHex = it }
                             }
                             if (themeMode == PixelShadeThemeEngine.Mode.MANUAL) {
-                                HexColorEditor("Active icon", activeIconHex) { activeIconHex = it }
-                                HexColorEditor("Inactive icon", inactiveIconHex) { inactiveIconHex = it }
+                                HexColorEditor("Tile icon (enabled)", activeIconHex) { activeIconHex = it }
+                                HexColorEditor("Tile icon (disabled)", inactiveIconHex) { inactiveIconHex = it }
                                 HexColorEditor("Primary text", primaryTextHex) { primaryTextHex = it }
                                 HexColorEditor("Secondary text", secondaryTextHex) { secondaryTextHex = it }
                                 HexColorEditor("Brightness track", brightnessTrackHex) { brightnessTrackHex = it }
+                                HexColorEditor("Notification background", notificationBackgroundHex) { notificationBackgroundHex = it }
+                                HexColorEditor("Tile text", tileTextHex) { tileTextHex = it }
+                                HexColorEditor("Header text", headerTextHex) { headerTextHex = it }
+                                HexColorEditor("Footer background", footerBackgroundHex) { footerBackgroundHex = it }
+                                HexColorEditor("Footer text", footerTextHex) { footerTextHex = it }
+                                HexColorEditor("Dismiss handle", handleHex) { handleHex = it }
+                                HexColorEditor("Slider icon", sliderIconHex) { sliderIconHex = it }
+                                HexColorEditor("Slider thumb", sliderThumbHex) { sliderThumbHex = it }
+                                HexColorEditor("Slider progress", sliderProgressHex) { sliderProgressHex = it }
                             }
                         }
                     }
+
                     PixelShadeEditorTab.SLIDERS -> {
                         EditorSection("Brightness and gestures", Icons.Default.Tune) {
                             EditorSwitch("Horizontal trigger swipe changes brightness", brightnessGesture) { brightnessGesture = it }
                             if (brightnessGesture) {
                                 EditorSlider("Brightness sensitivity", brightnessSensitivity, .25f..3f, String.format("%.2fx", brightnessSensitivity)) { brightnessSensitivity = it }
                             }
-                            Text("The visible brightness control in the shade uses the same theme-engine track and fill colors shown above.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text(
+                                "The runtime brightness control is a custom Pixel-style filled pill; it no longer uses the stock Material slider that produced the malformed thumb in build 80.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
                         }
                     }
+
                     PixelShadeEditorTab.NOTIFICATIONS -> {
                         EditorSection("Notifications", Icons.Default.Notifications) {
-                            Text("Notification cards, media controls, actions, dismiss and Clear all are enabled when notification access is granted. The preview includes demo notification content so lower-shade styling can be inspected without waiting for a real notification.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            FilledTonalButton(onClick = { context.startActivity(Intent(android.provider.Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)) }, modifier = Modifier.fillMaxWidth()) {
-                                Text("Notification access")
+                            EditorSwitch("Show notifications", showNotifications) { showNotifications = it }
+                            if (showNotifications) {
+                                EditorSwitch("Hide persistent notifications", hidePersistent) { hidePersistent = it }
+                                EditorSwitch("Only show media notifications", onlyMedia) { onlyMedia = it }
+                                EditorSwitch("Remove spacing between notifications", removeNotificationSpacing) { removeNotificationSpacing = it }
+                                EditorSwitch("Auto expand notifications", autoExpandNotifications) { autoExpandNotifications = it }
+                                EditorSwitch("Auto close after clearing notifications", autoCloseAfterClear) { autoCloseAfterClear = it }
                             }
+                            FilledTonalButton(
+                                onClick = { context.startActivity(Intent(android.provider.Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)) },
+                                modifier = Modifier.fillMaxWidth()
+                            ) { Text("Notification access") }
+                            Text(
+                                "Persistent filtering, compact stacking, media-only mode and expansion are now applied by the runtime shade rather than being preview-only options.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
                         }
                     }
+
                     PixelShadeEditorTab.MOTION -> {
                         EditorSection("Pixel motion", Icons.Default.Animation) {
-                            Text("Opening should track the pull gesture directly; spring/easing is used only when settling after release. These values control the settle phase, not a canned screen entrance.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text(
+                                "These values control the settle phase of the replacement shade.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
                             EditorSlider("Open settle", openDuration, 180f..600f, "${openDuration.roundToInt()} ms") { openDuration = it }
                             EditorSlider("Close settle", closeDuration, 120f..420f, "${closeDuration.roundToInt()} ms") { closeDuration = it }
                         }
                     }
+
                     PixelShadeEditorTab.ADVANCED -> {
                         EditorSection("System integration", Icons.Default.Build) {
                             EditorSwitch("Block OxygenOS stock shade", suppressStock) { suppressStock = it }
-                            Text("The normal block uses Android's statusbar-expansion disable state. The separate Oplus QS plugin isolation control remains in the main settings screen as an optional diagnostic fallback.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            EditorSwitch("Vibrate on successful handle gesture", vibrateOnTouch) { vibrateOnTouch = it }
+                            EditorSwitch("Auto close after tapping a Quick Settings tile", autoCloseTile) { autoCloseTile = it }
+                            Text(
+                                "Fullscreen/keyboard hiding, foreground-app blacklists and app-icon-derived notification colors remain hidden until their runtime paths are implemented. No dead switches are exposed.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
                         }
                     }
                 }
@@ -377,7 +544,7 @@ private fun InteractivePixel17Preview(
                     Text("Thu, Mar 26", style = MaterialTheme.typography.bodyMedium, color = palette.secondaryText)
                 }
                 Column(horizontalAlignment = Alignment.End) {
-                    Text("No service", style = MaterialTheme.typography.labelMedium, color = palette.primaryText)
+                    Text("Wi-Fi", style = MaterialTheme.typography.labelMedium, color = palette.primaryText)
                     Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
                         Icon(Icons.Default.Wifi, null, Modifier.size(15.dp), tint = palette.primaryText)
                         Text("53%", style = MaterialTheme.typography.labelSmall, color = palette.primaryText)
@@ -403,7 +570,7 @@ private fun InteractivePixel17Preview(
 
             Text("Notifications", style = MaterialTheme.typography.titleSmall, color = palette.secondaryText)
             Surface(shape = RoundedCornerShape(22.dp), color = palette.inactiveTile) {
-                Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Text("Messages", style = MaterialTheme.typography.labelMedium, color = palette.secondaryText)
                     Text("Live preview", style = MaterialTheme.typography.titleMedium, color = palette.primaryText)
                     Text("Scroll this preview independently to inspect notifications, media and the lower shade.", style = MaterialTheme.typography.bodySmall, color = palette.secondaryText)
@@ -483,12 +650,18 @@ private fun InteractivePixel17Preview(
 @Composable
 private fun PreviewBrightness(palette: PixelShadePalette) {
     Row(Modifier.fillMaxWidth().height(46.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        Surface(Modifier.weight(1f).fillMaxHeight(), shape = RoundedCornerShape(14.dp), color = palette.brightnessTrack) {
-            Box(Modifier.fillMaxSize()) {
-                Box(
-                    Modifier.fillMaxHeight().fillMaxWidth(.66f)
-                        .background(palette.brightnessFill, RoundedCornerShape(14.dp))
-                )
+        Box(
+            Modifier.weight(1f).fillMaxHeight().clip(RoundedCornerShape(23.dp)).background(palette.brightnessTrack)
+        ) {
+            Box(Modifier.fillMaxHeight().fillMaxWidth(.66f).background(palette.brightnessFill))
+            Surface(
+                modifier = Modifier.align(Alignment.CenterStart).offset(x = 112.dp).size(28.dp),
+                shape = RoundedCornerShape(14.dp),
+                color = palette.brightnessFill
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(Icons.Default.Brightness6, null, Modifier.size(16.dp), tint = palette.activeIcon)
+                }
             }
         }
         Surface(Modifier.width(52.dp).fillMaxHeight(), shape = RoundedCornerShape(14.dp), color = palette.inactiveTile) {
