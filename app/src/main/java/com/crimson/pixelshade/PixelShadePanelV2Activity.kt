@@ -11,14 +11,15 @@ import android.provider.Settings
 import android.view.Window
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -30,14 +31,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.core.view.WindowCompat
 import kotlinx.coroutines.launch
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
 import kotlin.math.roundToInt
 
 class PixelShadePanelV2Activity : ComponentActivity() {
@@ -84,6 +84,9 @@ private fun Pixel17RuntimeShade(onFinish: () -> Unit) {
     val opacity = PixelShadeConfig.panelOpacity(context)
     val customTiles = remember { PixelShadeTileStore.load(context) }
     val notifications = PixelShadeNotificationStore.items
+    val systemStatus = rememberRuntimeSystemStatus(context)
+    val openDurationMs = remember { PixelShadeConfig.openDurationMs(context).coerceIn(80, 1_000) }
+    val closeDurationMs = remember { PixelShadeConfig.closeDurationMs(context).coerceIn(80, 1_000) }
 
     var brightness by remember {
         mutableFloatStateOf(Settings.System.getInt(context.contentResolver, Settings.System.SCREEN_BRIGHTNESS, 128) / 255f)
@@ -94,22 +97,28 @@ private fun Pixel17RuntimeShade(onFinish: () -> Unit) {
     var torchOn by remember { mutableStateOf(SystemActionController.torchEnabled()) }
     var dndOn by remember { mutableStateOf(SystemActionController.dndEnabled(context)) }
     var rotationOn by remember { mutableStateOf(SystemActionController.rotationEnabled(context)) }
+    var closing by remember { mutableStateOf(false) }
 
     val cameraPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         if (granted) torchOn = SystemActionController.toggleFlashlight(context)
     }
 
-    val time = remember { SimpleDateFormat("h:mm", Locale.getDefault()).format(Date()) }
-    val date = remember { SimpleDateFormat("EEE, MMM d", Locale.getDefault()).format(Date()) }
-    val progress = remember { Animatable(0f) }
+    val progress = remember { androidx.compose.animation.core.Animatable(0f) }
     val scope = rememberCoroutineScope()
 
     fun closeShade() {
+        if (closing) return
+        closing = true
         scope.launch {
-            progress.animateTo(0f, spring(dampingRatio = .92f, stiffness = Spring.StiffnessMediumLow))
+            progress.animateTo(
+                0f,
+                tween(durationMillis = closeDurationMs, easing = FastOutSlowInEasing)
+            )
             onFinish()
         }
     }
+
+    BackHandler(enabled = !closing) { closeShade() }
 
     fun launchAndClose(intent: Intent) {
         val launched = runCatching {
@@ -125,8 +134,11 @@ private fun Pixel17RuntimeShade(onFinish: () -> Unit) {
         bluetoothOn = SystemActionController.bluetoothEnabled(context)
         dndOn = SystemActionController.dndEnabled(context)
         rotationOn = SystemActionController.rotationEnabled(context)
-        progress.snapTo(.08f)
-        progress.animateTo(1f, spring(dampingRatio = .86f, stiffness = Spring.StiffnessMediumLow))
+        progress.snapTo(0f)
+        progress.animateTo(
+            1f,
+            tween(durationMillis = openDurationMs, easing = FastOutSlowInEasing)
+        )
     }
 
     val tiles = listOf(
@@ -173,14 +185,26 @@ private fun Pixel17RuntimeShade(onFinish: () -> Unit) {
             item {
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
                     Column(Modifier.weight(1f)) {
-                        Text(time, style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.SemiBold, color = palette.primaryText)
-                        Text(date, style = MaterialTheme.typography.bodyMedium, color = palette.secondaryText)
+                        Text(systemStatus.time, style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.SemiBold, color = palette.primaryText)
+                        Text(systemStatus.date, style = MaterialTheme.typography.bodyMedium, color = palette.secondaryText)
                     }
                     Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                        Text("No service", style = MaterialTheme.typography.labelMedium, color = palette.primaryText)
+                        Text(systemStatus.connectionLabel, style = MaterialTheme.typography.labelMedium, color = palette.primaryText)
                         Row(horizontalArrangement = Arrangement.spacedBy(5.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Default.Wifi, null, Modifier.size(15.dp), tint = palette.primaryText)
-                            Text("53%", style = MaterialTheme.typography.labelSmall, color = palette.primaryText)
+                            when (systemStatus.transport) {
+                                RuntimeTransport.WIFI -> Icon(Icons.Default.Wifi, "Wi-Fi", Modifier.size(15.dp), tint = palette.primaryText)
+                                RuntimeTransport.CELLULAR -> Icon(Icons.Default.SignalCellularAlt, "Cellular", Modifier.size(15.dp), tint = palette.primaryText)
+                                else -> Unit
+                            }
+                            if (systemStatus.charging) {
+                                Icon(Icons.Default.Bolt, "Charging", Modifier.size(14.dp), tint = palette.primaryText)
+                            }
+                            Icon(Icons.Default.BatteryFull, "Battery", Modifier.size(15.dp), tint = palette.primaryText)
+                            Text(
+                                if (systemStatus.batteryPercent >= 0) "${systemStatus.batteryPercent}%" else "—",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = palette.primaryText
+                            )
                         }
                     }
                 }
@@ -283,7 +307,43 @@ private fun Pixel17RuntimeShade(onFinish: () -> Unit) {
                     ) { Icon(Icons.Default.PowerSettingsNew, "Power", tint = palette.primaryText) }
                 }
             }
+
+            item {
+                RuntimeDismissHandle(palette = palette, onClose = { closeShade() })
+            }
         }
+    }
+}
+
+@Composable
+private fun RuntimeDismissHandle(palette: PixelShadePalette, onClose: () -> Unit) {
+    val density = LocalDensity.current
+    val thresholdPx = with(density) { 36.dp.toPx() }
+    var dragDistance by remember { mutableFloatStateOf(0f) }
+
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(38.dp)
+            .pointerInput(thresholdPx) {
+                detectVerticalDragGestures(
+                    onDragStart = { dragDistance = 0f },
+                    onVerticalDrag = { _, dragAmount -> dragDistance += dragAmount },
+                    onDragEnd = {
+                        if (dragDistance <= -thresholdPx) onClose()
+                        dragDistance = 0f
+                    },
+                    onDragCancel = { dragDistance = 0f }
+                )
+            }
+            .clickable(onClick = onClose),
+        contentAlignment = Alignment.Center
+    ) {
+        Surface(
+            modifier = Modifier.width(44.dp).height(4.dp),
+            shape = RoundedCornerShape(2.dp),
+            color = palette.secondaryText.copy(alpha = .45f)
+        ) {}
     }
 }
 
