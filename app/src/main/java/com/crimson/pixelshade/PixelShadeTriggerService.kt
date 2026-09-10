@@ -215,8 +215,8 @@ class PixelShadeTriggerService : Service() {
         private fun edgeGestureDistance(dx: Float, dy: Float): Float = when (edge) {
             TriggerEdge.TOP -> if (dy > 0f && abs(dy) > abs(dx) * 1.15f) dy else 0f
             TriggerEdge.BOTTOM -> if (dy < 0f && abs(dy) > abs(dx) * 1.15f) -dy else 0f
-            TriggerEdge.LEFT -> if (dx > 0f && abs(dx) > abs(dy) * 1.15f) dx else 0f
-            TriggerEdge.RIGHT -> if (dx < 0f && abs(dx) > abs(dy) * 1.15f) -dx else 0f
+            TriggerEdge.LEFT,
+            TriggerEdge.RIGHT -> if (dy < 0f && abs(dy) > abs(dx) * 1.15f) -dy else 0f
         }
     }
 
