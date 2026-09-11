@@ -6,6 +6,7 @@ import android.content.Intent
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -31,11 +32,12 @@ enum class PixelShadeEditorTab(val label: String, val icon: ImageVector) {
     LAYOUT("Layout", Icons.Default.DashboardCustomize),
     COLORS("Colors", Icons.Default.Palette),
     TILE_STYLES("Tile Styles", Icons.Default.Gradient),
-    SLIDERS("Sliders", Icons.Default.Tune),
     NOTIFICATIONS("Notifications", Icons.Default.Notifications),
     MOTION("Motion", Icons.Default.Animation),
     ADVANCED("Advanced", Icons.Default.Build)
 }
+
+private enum class EditorHandle { TOP, BOTTOM, LEFT, RIGHT }
 
 @Composable
 fun PixelShadeEditorV2(
@@ -100,6 +102,7 @@ fun PixelShadeEditorV2(
     var openDuration by remember { mutableFloatStateOf(PixelShadeConfig.openDurationMs(context).toFloat()) }
     var closeDuration by remember { mutableFloatStateOf(PixelShadeConfig.closeDurationMs(context).toFloat()) }
     var selectedTab by remember { mutableStateOf(initialTab) }
+    var selectedHandle by remember { mutableStateOf(EditorHandle.TOP) }
     var themeMode by remember { mutableStateOf(PixelShadeThemeEngine.mode(context)) }
 
     var panelHex by remember { mutableStateOf(PixelShadeThemeEngine.storedColor(context, PixelShadeThemeEngine.KEY_PANEL) ?: colorToHex(scheme.surface)) }
@@ -319,30 +322,51 @@ fun PixelShadeEditorV2(
     ) { padding ->
         Column(Modifier.fillMaxSize().padding(padding)) {
             Text(
-                "Live shade preview · scroll the preview itself to inspect the whole panel",
+                "Live phone preview · drag a handle or its resize grips. The shade preview is separate from trigger editing.",
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
 
-            InteractivePixel17Preview(
-                palette = currentPalette(),
-                opacity = opacity,
-                tileCorner = tileCorner,
+            PhoneHandleEditorCanvas(
                 triggerHeight = triggerHeight,
                 visibleHeight = visibleHeight,
                 topWidth = topWidth,
                 topX = topX,
                 offset = offset,
-                onMoveTrigger = { dxPercent, dyDp ->
+                bottomEnabled = bottomEnabled,
+                bottomWidth = bottomWidth,
+                bottomHeight = bottomHeight,
+                bottomX = bottomX,
+                leftEnabled = leftEnabled,
+                leftWidth = leftWidth,
+                leftHeight = leftHeight,
+                leftY = leftY,
+                rightEnabled = rightEnabled,
+                rightWidth = rightWidth,
+                rightHeight = rightHeight,
+                rightY = rightY,
+                hideRuntimeStrip = hideHandleIcon,
+                selectedHandle = selectedHandle,
+                onSelect = { selectedHandle = it },
+                onTopMove = { dxPercent, dyDp ->
                     topX = (topX + dxPercent).coerceIn(0f, 100f)
                     offset = (offset + dyDp).coerceIn(0f, 120f)
                 },
-                onResizeWidth = { deltaPercent -> topWidth = (topWidth + deltaPercent).coerceIn(10f, 100f) },
-                onResizeHeight = { deltaDp ->
+                onTopWidth = { deltaPercent -> topWidth = (topWidth + deltaPercent).coerceIn(10f, 100f) },
+                onTopHeight = { deltaDp ->
                     triggerHeight = (triggerHeight + deltaDp).coerceIn(1f, 120f)
                     visibleHeight = visibleHeight.coerceAtMost(triggerHeight)
-                }
+                },
+                onBottomMove = { deltaPercent -> bottomX = (bottomX + deltaPercent).coerceIn(0f, 100f) },
+                onBottomWidth = { deltaPercent -> bottomWidth = (bottomWidth + deltaPercent).coerceIn(10f, 100f) },
+                onBottomHeight = { deltaDp -> bottomHeight = (bottomHeight + deltaDp).coerceIn(2f, 64f) },
+                onLeftMove = { deltaPercent -> leftY = (leftY + deltaPercent).coerceIn(0f, 100f) },
+                onLeftWidth = { deltaDp -> leftWidth = (leftWidth + deltaDp).coerceIn(2f, 64f) },
+                onLeftHeight = { deltaDp -> leftHeight = (leftHeight + deltaDp).coerceIn(40f, 900f) },
+                onRightMove = { deltaPercent -> rightY = (rightY + deltaPercent).coerceIn(0f, 100f) },
+                onRightWidth = { deltaDp -> rightWidth = (rightWidth + deltaDp).coerceIn(2f, 64f) },
+                onRightHeight = { deltaDp -> rightHeight = (rightHeight + deltaDp).coerceIn(40f, 900f) }
             )
 
             ScrollableTabRow(selectedTabIndex = selectedTab.ordinal, edgePadding = 8.dp) {
@@ -422,6 +446,20 @@ fun PixelShadeEditorV2(
                             EditorSwitch("Show panel footer", showPanelFooter) { showPanelFooter = it }
                             EditorSwitch("Hide tile text", hideTileText) { hideTileText = it }
                             EditorSwitch("Use 24-hour clock", use24HourClock) { use24HourClock = it }
+                            HorizontalDivider()
+                            Text("Brightness and gestures", style = MaterialTheme.typography.titleSmall)
+                            EditorSwitch("Horizontal trigger swipe changes brightness", brightnessGesture) { brightnessGesture = it }
+                            if (brightnessGesture) {
+                                EditorSlider("Brightness sensitivity", brightnessSensitivity, .25f..3f, String.format("%.2fx", brightnessSensitivity)) { brightnessSensitivity = it }
+                            }
+                            OutlinedButton(
+                                onClick = { context.startActivity(Intent(context, PixelShadePanelV2Activity::class.java)) },
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Icon(Icons.Default.Visibility, null)
+                                Spacer(Modifier.width(8.dp))
+                                Text("Preview saved shade")
+                            }
                         }
                     }
 
@@ -498,20 +536,6 @@ fun PixelShadeEditorV2(
                         }
                     }
 
-                    PixelShadeEditorTab.SLIDERS -> {
-                        EditorSection("Brightness and gestures", Icons.Default.Tune) {
-                            EditorSwitch("Horizontal trigger swipe changes brightness", brightnessGesture) { brightnessGesture = it }
-                            if (brightnessGesture) {
-                                EditorSlider("Brightness sensitivity", brightnessSensitivity, .25f..3f, String.format("%.2fx", brightnessSensitivity)) { brightnessSensitivity = it }
-                            }
-                            Text(
-                                "The runtime brightness control is a custom Pixel-style filled pill; it no longer uses the stock Material slider that produced the malformed thumb in build 80.",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                    }
-
                     PixelShadeEditorTab.NOTIFICATIONS -> {
                         EditorSection("Notifications", Icons.Default.Notifications) {
                             EditorSwitch("Show notifications", showNotifications) { showNotifications = it }
@@ -562,170 +586,219 @@ fun PixelShadeEditorV2(
 }
 
 @Composable
-private fun InteractivePixel17Preview(
-    palette: PixelShadePalette,
-    opacity: Float,
-    tileCorner: Float,
+private fun PhoneHandleEditorCanvas(
     triggerHeight: Float,
     visibleHeight: Float,
     topWidth: Float,
     topX: Float,
     offset: Float,
-    onMoveTrigger: (Float, Float) -> Unit,
-    onResizeWidth: (Float) -> Unit,
-    onResizeHeight: (Float) -> Unit
+    bottomEnabled: Boolean,
+    bottomWidth: Float,
+    bottomHeight: Float,
+    bottomX: Float,
+    leftEnabled: Boolean,
+    leftWidth: Float,
+    leftHeight: Float,
+    leftY: Float,
+    rightEnabled: Boolean,
+    rightWidth: Float,
+    rightHeight: Float,
+    rightY: Float,
+    hideRuntimeStrip: Boolean,
+    selectedHandle: EditorHandle,
+    onSelect: (EditorHandle) -> Unit,
+    onTopMove: (Float, Float) -> Unit,
+    onTopWidth: (Float) -> Unit,
+    onTopHeight: (Float) -> Unit,
+    onBottomMove: (Float) -> Unit,
+    onBottomWidth: (Float) -> Unit,
+    onBottomHeight: (Float) -> Unit,
+    onLeftMove: (Float) -> Unit,
+    onLeftWidth: (Float) -> Unit,
+    onLeftHeight: (Float) -> Unit,
+    onRightMove: (Float) -> Unit,
+    onRightWidth: (Float) -> Unit,
+    onRightHeight: (Float) -> Unit
 ) {
     val density = LocalDensity.current
-    BoxWithConstraints(
-        Modifier.fillMaxWidth().height(390.dp).padding(horizontal = 12.dp, vertical = 6.dp)
-            .clip(RoundedCornerShape(24.dp))
-            .background(palette.panel.copy(alpha = opacity))
-            .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(24.dp))
+    val accent = MaterialTheme.colorScheme.tertiary
+    val outline = MaterialTheme.colorScheme.outline
+
+    Column(
+        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(6.dp)
     ) {
-        val previewWidthDp = maxWidth
-        val previewWidthPx = with(density) { previewWidthDp.toPx() }
-        val shadeScroll = rememberScrollState()
+        Text(
+            "Phone and trigger canvas",
+            style = MaterialTheme.typography.labelLarge,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Box(Modifier.fillMaxWidth().height(408.dp), contentAlignment = Alignment.Center) {
+            BoxWithConstraints(
+                Modifier.fillMaxHeight().aspectRatio(9f / 19.5f)
+                    .clip(RoundedCornerShape(30.dp))
+                    .background(MaterialTheme.colorScheme.surfaceContainerLowest)
+                    .border(1.dp, outline, RoundedCornerShape(30.dp))
+            ) {
+                val widthPx = with(density) { maxWidth.toPx().coerceAtLeast(1f) }
+                val heightPx = with(density) { maxHeight.toPx().coerceAtLeast(1f) }
+                fun scaledY(runtimeDp: Float) = (maxHeight.value * runtimeDp / 840f).dp
+                fun scaledX(runtimeDp: Float) = (maxWidth.value * runtimeDp / 390f).dp
+                fun centeredStart(position: Float, length: androidx.compose.ui.unit.Dp, available: androidx.compose.ui.unit.Dp): androidx.compose.ui.unit.Dp =
+                    (available * (position / 100f) - length / 2f).coerceIn(0.dp, (available - length).coerceAtLeast(0.dp))
 
-        Column(
-            Modifier.fillMaxSize().verticalScroll(shadeScroll).padding(start = 16.dp, end = 16.dp, top = 18.dp, bottom = 28.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
-                Column(Modifier.weight(1f)) {
-                    Text("11:00", style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.SemiBold, color = palette.primaryText)
-                    Text("Thu, Mar 26", style = MaterialTheme.typography.bodyMedium, color = palette.secondaryText)
+                Box(Modifier.fillMaxWidth().height(28.dp).background(MaterialTheme.colorScheme.surfaceContainer)) {
+                    Text("9:41", Modifier.align(Alignment.CenterStart).padding(start = 14.dp), style = MaterialTheme.typography.labelSmall)
+                    Row(Modifier.align(Alignment.CenterEnd).padding(end = 12.dp), horizontalArrangement = Arrangement.spacedBy(3.dp)) {
+                        Icon(Icons.Default.Wifi, null, Modifier.size(11.dp))
+                        Icon(Icons.Default.BatteryFull, null, Modifier.size(12.dp))
+                    }
                 }
-                Column(horizontalAlignment = Alignment.End) {
-                    Text("Wi-Fi", style = MaterialTheme.typography.labelMedium, color = palette.primaryText)
-                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Default.Wifi, null, Modifier.size(15.dp), tint = palette.primaryText)
-                        Text("53%", style = MaterialTheme.typography.labelSmall, color = palette.primaryText)
+                Surface(
+                    Modifier.align(Alignment.TopCenter).offset(y = 4.dp).width(56.dp).height(16.dp),
+                    shape = RoundedCornerShape(10.dp),
+                    color = Color.Black
+                ) {}
+                Box(Modifier.align(Alignment.BottomCenter).padding(bottom = 10.dp).width(78.dp).height(4.dp).background(outline, RoundedCornerShape(2.dp)))
+
+                val topLength = maxWidth * (topWidth / 100f)
+                val topHeight = scaledY(triggerHeight).coerceAtLeast(9.dp)
+                val topStart = centeredStart(topX, topLength, maxWidth)
+                PhoneHandleRegion(
+                    modifier = Modifier.offset(x = topStart, y = scaledY(offset)).width(topLength).height(topHeight),
+                    label = "TOP  ↓ open",
+                    enabled = true,
+                    selected = selectedHandle == EditorHandle.TOP,
+                    runtimeStripVisible = !hideRuntimeStrip,
+                    onSelect = { onSelect(EditorHandle.TOP) },
+                    onDrag = { dx, dy -> onTopMove(dx / widthPx * 100f, with(density) { dy.toDp().value } * 840f / maxHeight.value) }
+                ) {
+                    if (visibleHeight > 0f && !hideRuntimeStrip) {
+                        Box(Modifier.fillMaxWidth().height(scaledY(visibleHeight).coerceAtMost(topHeight)).background(accent.copy(alpha = .50f)))
+                    }
+                    ResizeGrip(Modifier.align(Alignment.CenterEnd).width(10.dp).fillMaxHeight()) { dx, _ -> onTopWidth(dx / widthPx * 100f) }
+                    ResizeGrip(Modifier.align(Alignment.BottomCenter).height(10.dp).fillMaxWidth()) { _, dy ->
+                        onTopHeight(with(density) { dy.toDp().value } * 840f / maxHeight.value)
+                    }
+                }
+
+                val bottomLength = maxWidth * (bottomWidth / 100f)
+                val bottomHeightPreview = scaledY(bottomHeight).coerceAtLeast(9.dp)
+                val bottomStart = centeredStart(bottomX, bottomLength, maxWidth)
+                PhoneHandleRegion(
+                    modifier = Modifier.align(Alignment.BottomStart).offset(x = bottomStart, y = -bottomHeightPreview - 22.dp).width(bottomLength).height(bottomHeightPreview),
+                    label = "BOTTOM  ↑ open",
+                    enabled = bottomEnabled,
+                    selected = selectedHandle == EditorHandle.BOTTOM,
+                    runtimeStripVisible = !hideRuntimeStrip,
+                    onSelect = { onSelect(EditorHandle.BOTTOM) },
+                    onDrag = { dx, _ -> onBottomMove(dx / widthPx * 100f) }
+                ) {
+                    if (visibleHeight > 0f && !hideRuntimeStrip) {
+                        Box(Modifier.align(Alignment.BottomStart).fillMaxWidth().height(scaledY(visibleHeight).coerceAtMost(bottomHeightPreview)).background(accent.copy(alpha = .50f)))
+                    }
+                    ResizeGrip(Modifier.align(Alignment.CenterEnd).width(10.dp).fillMaxHeight()) { dx, _ -> onBottomWidth(dx / widthPx * 100f) }
+                    ResizeGrip(Modifier.align(Alignment.TopCenter).height(10.dp).fillMaxWidth()) { _, dy ->
+                        onBottomHeight(-with(density) { dy.toDp().value } * 840f / maxHeight.value)
+                    }
+                }
+
+                val leftHeightPreview = scaledY(leftHeight).coerceAtLeast(22.dp)
+                val leftWidthPreview = scaledX(leftWidth).coerceAtLeast(9.dp)
+                PhoneHandleRegion(
+                    modifier = Modifier.offset(y = centeredStart(leftY, leftHeightPreview, maxHeight)).width(leftWidthPreview).height(leftHeightPreview),
+                    label = "LEFT  ↑ open",
+                    enabled = leftEnabled,
+                    selected = selectedHandle == EditorHandle.LEFT,
+                    runtimeStripVisible = false,
+                    onSelect = { onSelect(EditorHandle.LEFT) },
+                    onDrag = { _, dy -> onLeftMove(dy / heightPx * 100f) }
+                ) {
+                    ResizeGrip(Modifier.align(Alignment.CenterEnd).width(10.dp).fillMaxHeight()) { dx, _ ->
+                        onLeftWidth(with(density) { dx.toDp().value } * 390f / maxWidth.value)
+                    }
+                    ResizeGrip(Modifier.align(Alignment.BottomCenter).height(10.dp).fillMaxWidth()) { _, dy ->
+                        onLeftHeight(with(density) { dy.toDp().value } * 840f / maxHeight.value)
+                    }
+                }
+
+                val rightHeightPreview = scaledY(rightHeight).coerceAtLeast(22.dp)
+                val rightWidthPreview = scaledX(rightWidth).coerceAtLeast(9.dp)
+                PhoneHandleRegion(
+                    modifier = Modifier.align(Alignment.TopEnd).offset(y = centeredStart(rightY, rightHeightPreview, maxHeight)).width(rightWidthPreview).height(rightHeightPreview),
+                    label = "RIGHT  ↑ open",
+                    enabled = rightEnabled,
+                    selected = selectedHandle == EditorHandle.RIGHT,
+                    runtimeStripVisible = false,
+                    onSelect = { onSelect(EditorHandle.RIGHT) },
+                    onDrag = { _, dy -> onRightMove(dy / heightPx * 100f) }
+                ) {
+                    ResizeGrip(Modifier.align(Alignment.CenterStart).width(10.dp).fillMaxHeight()) { dx, _ ->
+                        onRightWidth(-with(density) { dx.toDp().value } * 390f / maxWidth.value)
+                    }
+                    ResizeGrip(Modifier.align(Alignment.BottomCenter).height(10.dp).fillMaxWidth()) { _, dy ->
+                        onRightHeight(with(density) { dy.toDp().value } * 840f / maxHeight.value)
                     }
                 }
             }
-
-            PreviewBrightness(palette)
-
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                PreviewCompactTile(Icons.Default.Wifi, true, tileCorner, palette, Modifier.weight(1f))
-                PreviewCompactTile(Icons.Default.SwapVert, true, tileCorner, palette, Modifier.weight(1f))
-                PreviewWideTile("Bluetooth", Icons.Default.Bluetooth, false, tileCorner, palette, Modifier.weight(2f))
-            }
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                PreviewWideTile("Flashlight", Icons.Default.FlashlightOn, false, tileCorner, palette, Modifier.weight(1f))
-                PreviewWideTile("Screen record", Icons.Default.ScreenShare, false, tileCorner, palette, Modifier.weight(1f))
-            }
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                PreviewWideTile("Modes", Icons.Default.DoNotDisturbOn, false, tileCorner, palette, Modifier.weight(1f))
-                PreviewWideTile("Rotation", Icons.Default.ScreenRotation, true, tileCorner, palette, Modifier.weight(1f))
-            }
-
-            Text("Notifications", style = MaterialTheme.typography.titleSmall, color = palette.secondaryText)
-            Surface(shape = RoundedCornerShape(22.dp), color = palette.inactiveTile) {
-                Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text("Messages", style = MaterialTheme.typography.labelMedium, color = palette.secondaryText)
-                    Text("Live preview", style = MaterialTheme.typography.titleMedium, color = palette.primaryText)
-                    Text("Scroll this preview independently to inspect notifications, media and the lower shade.", style = MaterialTheme.typography.bodySmall, color = palette.secondaryText)
-                }
-            }
-            Surface(shape = RoundedCornerShape(24.dp), color = palette.inactiveTile) {
-                Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("Media", style = MaterialTheme.typography.labelMedium, color = palette.secondaryText)
-                    Text("Nothing playing", style = MaterialTheme.typography.titleMedium, color = palette.primaryText)
-                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        Icon(Icons.Default.SkipPrevious, null, tint = palette.inactiveIcon)
-                        Icon(Icons.Default.PlayArrow, null, tint = palette.inactiveIcon)
-                        Icon(Icons.Default.SkipNext, null, tint = palette.inactiveIcon)
-                    }
-                }
-            }
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                Icon(Icons.Default.Edit, "Edit", tint = palette.primaryText)
-                Spacer(Modifier.width(16.dp))
-                Icon(Icons.Default.PowerSettingsNew, "Power", tint = palette.primaryText)
-            }
-            Spacer(Modifier.height(40.dp))
         }
-
-        val zoneWidth = previewWidthDp * (topWidth / 100f)
-        val zoneStart = (previewWidthDp * (topX / 100f) - zoneWidth / 2f).coerceIn(0.dp, previewWidthDp - zoneWidth)
-        val previewTouchHeight = triggerHeight.dp.coerceAtMost(56.dp)
-
-        Box(
-            Modifier.offset(x = zoneStart, y = offset.dp).width(zoneWidth).height(previewTouchHeight)
-                .border(2.dp, MaterialTheme.colorScheme.tertiary, RoundedCornerShape(6.dp))
-                .pointerInput(topX, offset, topWidth) {
-                    detectDragGestures { change, drag ->
-                        change.consume()
-                        onMoveTrigger(drag.x / previewWidthPx * 100f, with(density) { drag.y.toDp().value })
-                    }
-                }
-        ) {
-            if (visibleHeight > 0f) {
-                Box(Modifier.fillMaxWidth().height(visibleHeight.dp.coerceAtMost(previewTouchHeight)).background(MaterialTheme.colorScheme.tertiary.copy(alpha = .65f)))
-            }
-            Text(
-                "trigger",
-                modifier = Modifier.align(Alignment.Center).background(MaterialTheme.colorScheme.surface.copy(alpha = .8f)).padding(horizontal = 5.dp, vertical = 1.dp),
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurface
-            )
-            Box(
-                Modifier.align(Alignment.CenterEnd).size(width = 14.dp, height = 30.dp).background(MaterialTheme.colorScheme.tertiary, RoundedCornerShape(7.dp))
-                    .pointerInput(topWidth) {
-                        detectDragGestures { change, drag ->
-                            change.consume()
-                            onResizeWidth(drag.x / previewWidthPx * 100f)
-                        }
-                    }
-            )
-            Box(
-                Modifier.align(Alignment.BottomCenter).size(width = 34.dp, height = 12.dp).background(MaterialTheme.colorScheme.tertiary, RoundedCornerShape(6.dp))
-                    .pointerInput(triggerHeight) {
-                        detectDragGestures { change, drag ->
-                            change.consume()
-                            onResizeHeight(with(density) { drag.y.toDp().value })
-                        }
-                    }
-            )
-        }
+        Text(
+            "Selected: ${selectedHandle.name.lowercase().replaceFirstChar { it.uppercase() }} · outlines remain visible here even when runtime strips are hidden.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
     }
 }
 
 @Composable
-private fun PreviewBrightness(palette: PixelShadePalette) {
-    Row(Modifier.fillMaxWidth().height(46.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        Box(Modifier.weight(1f).fillMaxHeight().clip(RoundedCornerShape(23.dp)).background(palette.brightnessTrack)) {
-            Box(Modifier.fillMaxHeight().fillMaxWidth(.66f).background(palette.brightnessFill))
-            Surface(Modifier.align(Alignment.CenterStart).offset(x = 112.dp).size(28.dp), shape = RoundedCornerShape(14.dp), color = palette.brightnessFill) {
-                Box(contentAlignment = Alignment.Center) { Icon(Icons.Default.Brightness6, null, Modifier.size(16.dp), tint = palette.activeIcon) }
+private fun PhoneHandleRegion(
+    modifier: Modifier,
+    label: String,
+    enabled: Boolean,
+    selected: Boolean,
+    runtimeStripVisible: Boolean,
+    onSelect: () -> Unit,
+    onDrag: (Float, Float) -> Unit,
+    content: @Composable BoxScope.() -> Unit
+) {
+    val accent = MaterialTheme.colorScheme.tertiary
+    val shape = RoundedCornerShape(6.dp)
+    Box(
+        modifier
+            .clip(shape)
+            .background(if (enabled && runtimeStripVisible) accent.copy(alpha = .22f) else accent.copy(alpha = .08f))
+            .border(if (selected) 2.dp else 1.dp, if (selected) accent else accent.copy(alpha = .65f), shape)
+            .pointerInput(label) { detectTapGestures(onTap = { onSelect() }) }
+            .pointerInput(label, selected) {
+                detectDragGestures { change, drag ->
+                    change.consume()
+                    onDrag(drag.x, drag.y)
+                }
             }
-        }
-        Surface(Modifier.width(52.dp).fillMaxHeight(), shape = RoundedCornerShape(14.dp), color = palette.inactiveTile) {
-            Box(contentAlignment = Alignment.Center) { Icon(Icons.Default.Settings, "Settings", tint = palette.inactiveIcon) }
-        }
+    ) {
+        Text(
+            label,
+            Modifier.align(Alignment.Center).background(MaterialTheme.colorScheme.surface.copy(alpha = .88f), RoundedCornerShape(4.dp)).padding(horizontal = 4.dp, vertical = 1.dp),
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurface
+        )
+        content()
     }
 }
 
 @Composable
-private fun PreviewCompactTile(icon: ImageVector, active: Boolean, corner: Float, palette: PixelShadePalette, modifier: Modifier) {
-    val bg = if (active) palette.activeTile else palette.inactiveTile
-    val fg = if (active) palette.activeIcon else palette.inactiveIcon
-    Surface(modifier.aspectRatio(1f), shape = RoundedCornerShape(corner.dp.coerceAtMost(26.dp)), color = bg) {
-        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Icon(icon, null, Modifier.size(25.dp), tint = fg) }
-    }
-}
-
-@Composable
-private fun PreviewWideTile(label: String, icon: ImageVector, active: Boolean, corner: Float, palette: PixelShadePalette, modifier: Modifier) {
-    val bg = if (active) palette.activeTile else palette.inactiveTile
-    val fg = if (active) palette.activeIcon else palette.inactiveIcon
-    Surface(modifier.height(62.dp), shape = RoundedCornerShape(corner.dp.coerceAtMost(28.dp)), color = bg) {
-        Row(Modifier.fillMaxSize().padding(horizontal = 14.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            Icon(icon, null, Modifier.size(22.dp), tint = fg)
-            Text(label, style = MaterialTheme.typography.labelLarge, maxLines = 1, color = fg)
-        }
-    }
+private fun ResizeGrip(modifier: Modifier, onDrag: (Float, Float) -> Unit) {
+    Box(
+        modifier
+            .background(MaterialTheme.colorScheme.tertiary.copy(alpha = .85f), RoundedCornerShape(4.dp))
+            .pointerInput(Unit) {
+                detectDragGestures { change, drag ->
+                    change.consume()
+                    onDrag(drag.x, drag.y)
+                }
+            }
+    )
 }
 
 @Composable

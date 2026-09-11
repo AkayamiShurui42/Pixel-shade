@@ -8,6 +8,7 @@ import android.graphics.drawable.ColorDrawable
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
+import android.util.Log
 import android.view.Window
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
@@ -43,10 +44,16 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import kotlinx.coroutines.launch
+import java.text.DateFormat
+import java.util.Date
 import kotlin.math.roundToInt
 
 class PixelShadePanelV2Activity : ComponentActivity() {
+    private lateinit var insetsController: WindowInsetsControllerCompat
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         requestWindowFeature(Window.FEATURE_NO_TITLE)
@@ -55,6 +62,10 @@ class PixelShadePanelV2Activity : ComponentActivity() {
         window.statusBarColor = android.graphics.Color.TRANSPARENT
         window.navigationBarColor = android.graphics.Color.TRANSPARENT
         window.setBackgroundDrawable(ColorDrawable(android.graphics.Color.TRANSPARENT))
+        insetsController = WindowCompat.getInsetsController(window, window.decorView).apply {
+            systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+        }
+        hidePanelStatusBar()
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             runCatching {
                 window.addFlags(WindowManager.LayoutParams.FLAG_BLUR_BEHIND)
@@ -69,8 +80,35 @@ class PixelShadePanelV2Activity : ComponentActivity() {
                 if (dark) dynamicDarkColorScheme(this) else dynamicLightColorScheme(this)
             } else if (dark) darkColorScheme() else lightColorScheme()
             MaterialTheme(colorScheme = scheme) {
-                Pixel17RuntimeShade(onFinish = { finish() })
+                Pixel17RuntimeShade(onFinish = { finishAndRemoveTask() })
             }
+        }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        hidePanelStatusBar()
+    }
+
+    override fun onPause() {
+        restoreSystemStatusBar()
+        Log.i("PixelShadePanel", "panel paused; status bar restored for the next foreground surface")
+        super.onPause()
+    }
+
+    override fun onDestroy() {
+        restoreSystemStatusBar()
+        super.onDestroy()
+    }
+
+    private fun hidePanelStatusBar() {
+        insetsController.hide(WindowInsetsCompat.Type.statusBars())
+        Log.i("PixelShadePanel", "panel visible; Android status bar hidden for this window")
+    }
+
+    private fun restoreSystemStatusBar() {
+        if (::insetsController.isInitialized) {
+            insetsController.show(WindowInsetsCompat.Type.statusBars())
         }
     }
 }
@@ -89,6 +127,7 @@ private fun Pixel17RuntimeShade(onFinish: () -> Unit) {
     val palette = rememberPixelShadePalette(context, MaterialTheme.colorScheme)
     val opacity = PixelShadeConfig.panelOpacity(context)
     val panelPadding = PixelShadeConfig.panelPaddingDp(context).coerceIn(8f, 40f).dp
+    val cutoutTop = WindowInsets.displayCutout.asPaddingValues().calculateTopPadding()
     val customTiles = remember { PixelShadeTileStore.load(context) }
     val notifications = PixelShadeNotificationStore.items
     val systemStatus = rememberRuntimeSystemStatus(context)
@@ -210,15 +249,15 @@ private fun Pixel17RuntimeShade(onFinish: () -> Unit) {
     ) {
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(start = panelPadding, end = panelPadding, top = 34.dp, bottom = 30.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
+            contentPadding = PaddingValues(start = panelPadding, end = panelPadding, top = maxOf(30.dp, cutoutTop + 12.dp), bottom = 30.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             if (showHeader) {
                 item {
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
                         Column(Modifier.weight(1f)) {
-                            Text(systemStatus.time, style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.SemiBold, color = headerText)
-                            Text(systemStatus.date, style = MaterialTheme.typography.bodyMedium, color = palette.secondaryText)
+                            Text(systemStatus.time, style = MaterialTheme.typography.displaySmall, fontWeight = FontWeight.Medium, color = headerText)
+                            Text(systemStatus.date, style = MaterialTheme.typography.bodyLarge, color = palette.secondaryText)
                         }
                         if (showSystemIcons) {
                             Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(3.dp)) {
@@ -256,18 +295,15 @@ private fun Pixel17RuntimeShade(onFinish: () -> Unit) {
             item {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        RuntimeCompactTile(tiles[0], palette, Modifier.weight(1f)) { activate(tiles[0]) }
-                        RuntimeCompactTile(tiles[1], palette, Modifier.weight(1f)) { activate(tiles[1]) }
+                        RuntimeCompactTile(tiles[0], palette, Modifier.weight(1f), tileHeight) { activate(tiles[0]) }
+                        RuntimeCompactTile(tiles[1], palette, Modifier.weight(1f), tileHeight) { activate(tiles[1]) }
                         RuntimeWideTile(tiles[2], palette, Modifier.weight(2f), tileHeight, hideTileText, tileText) { activate(tiles[2]) }
                     }
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         RuntimeWideTile(tiles[3], palette, Modifier.weight(1f), tileHeight, hideTileText, tileText) { activate(tiles[3]) }
                         RuntimeWideTile(tiles[4], palette, Modifier.weight(1f), tileHeight, hideTileText, tileText) { activate(tiles[4]) }
                     }
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        RuntimeWideTile(tiles[5], palette, Modifier.weight(1f), tileHeight, hideTileText, tileText) { activate(tiles[5]) }
-                        Spacer(Modifier.weight(1f))
-                    }
+                    RuntimeWideTile(tiles[5], palette, Modifier.fillMaxWidth(), tileHeight, hideTileText, tileText) { activate(tiles[5]) }
                 }
             }
 
@@ -384,9 +420,9 @@ private fun RuntimeBrightness(value: Float, palette: PixelShadePalette, onValueC
     val thumbColor = PixelShadeThemeEngine.resolvedColor(context, PixelShadeThemeEngine.KEY_SLIDER_THUMB, palette.brightnessFill)
     val iconColor = PixelShadeThemeEngine.resolvedColor(context, PixelShadeThemeEngine.KEY_SLIDER_ICON, palette.activeIcon)
     val fraction = value.coerceIn(.01f, 1f)
-    val shape = RoundedCornerShape(24.dp)
+    val shape = RoundedCornerShape(28.dp)
 
-    Row(Modifier.fillMaxWidth().height(52.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+    Row(Modifier.fillMaxWidth().height(56.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
         BoxWithConstraints(
             modifier = Modifier.weight(1f).fillMaxHeight().clip(shape).background(track)
                 .pointerInput(Unit) {
@@ -407,27 +443,35 @@ private fun RuntimeBrightness(value: Float, palette: PixelShadePalette, onValueC
                 }
         ) {
             Box(Modifier.fillMaxHeight().fillMaxWidth(fraction).background(progressColor))
-            val thumbSize = 30.dp
-            val thumbX = (maxWidth - thumbSize).coerceAtLeast(0.dp) * fraction
-            Box(Modifier.align(Alignment.CenterStart).offset(x = thumbX).size(thumbSize).background(thumbColor, CircleShape), contentAlignment = Alignment.Center) {
-                Icon(Icons.Default.Brightness6, "Brightness", Modifier.size(18.dp), tint = iconColor)
+            Box(
+                Modifier.align(Alignment.CenterStart).padding(start = 14.dp).size(26.dp)
+                    .background(thumbColor.copy(alpha = .82f), CircleShape),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(Icons.Default.Brightness6, "Brightness", Modifier.size(16.dp), tint = iconColor)
             }
         }
-        Surface(Modifier.width(56.dp).fillMaxHeight().clickable(onClick = onSettings), shape = RoundedCornerShape(18.dp), color = palette.inactiveTile) {
+        Surface(Modifier.width(52.dp).fillMaxHeight().clickable(onClick = onSettings), shape = RoundedCornerShape(20.dp), color = palette.inactiveTile) {
             Box(contentAlignment = Alignment.Center) { Icon(Icons.Default.Settings, "Settings", tint = palette.inactiveIcon) }
         }
     }
 }
 
 @Composable
-private fun RuntimeCompactTile(tile: RuntimeTile, palette: PixelShadePalette, modifier: Modifier, onClick: () -> Unit) {
+private fun RuntimeCompactTile(
+    tile: RuntimeTile,
+    palette: PixelShadePalette,
+    modifier: Modifier,
+    height: androidx.compose.ui.unit.Dp,
+    onClick: () -> Unit
+) {
     val context = LocalContext.current
     val fg = if (tile.active) palette.activeIcon else palette.inactiveIcon
-    val shape = RoundedCornerShape(PixelShadeConfig.tileCornerDp(context).dp.coerceAtMost(26.dp))
+    val shape = RoundedCornerShape(PixelShadeConfig.tileCornerDp(context).dp.coerceIn(18.dp, 28.dp))
     val brushes = pixelShadeTileBrushes(context, palette.activeTile, palette.inactiveTile)
     val brush = if (tile.active) brushes.active else brushes.inactive
-    Box(modifier.aspectRatio(1f).clip(shape).background(brush).clickable(onClick = onClick), contentAlignment = Alignment.Center) {
-        Icon(tile.icon, tile.label, Modifier.size(26.dp), tint = fg)
+    Box(modifier.height(height).clip(shape).background(brush).clickable(onClick = onClick), contentAlignment = Alignment.Center) {
+        Icon(tile.icon, tile.label, Modifier.size(24.dp), tint = fg)
     }
 }
 
@@ -443,7 +487,7 @@ private fun RuntimeWideTile(
 ) {
     val context = LocalContext.current
     val fg = if (tile.active) palette.activeIcon else palette.inactiveIcon
-    val shape = RoundedCornerShape(PixelShadeConfig.tileCornerDp(context).dp.coerceAtMost(28.dp))
+    val shape = RoundedCornerShape(PixelShadeConfig.tileCornerDp(context).dp.coerceIn(18.dp, 28.dp))
     val brushes = pixelShadeTileBrushes(context, palette.activeTile, palette.inactiveTile)
     val brush = if (tile.active) brushes.active else brushes.inactive
     Box(modifier.height(height).clip(shape).background(brush).clickable(onClick = onClick)) {
@@ -452,7 +496,7 @@ private fun RuntimeWideTile(
                 Icon(tile.icon, tile.label, Modifier.size(23.dp), tint = fg)
             }
         } else {
-            Row(Modifier.fillMaxSize().padding(horizontal = 14.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(Modifier.fillMaxSize().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 Icon(tile.icon, null, Modifier.size(22.dp), tint = fg)
                 Text(tile.label, style = MaterialTheme.typography.labelLarge, color = if (tile.active) fg else textColor, maxLines = 1)
             }
@@ -520,20 +564,23 @@ private fun RuntimeCustomArtwork(tile: PixelShadeTile, palette: PixelShadePalett
 
 @Composable
 private fun RuntimeNotificationCard(item: ShadeNotification, palette: PixelShadePalette, background: Color, expanded: Boolean, onFinish: () -> Unit) {
-    val clickable = if (item.contentIntent != null) {
-        Modifier.fillMaxWidth().clickable { if (PixelShadeNotificationStore.open(item)) onFinish() }
+    val clickable = if (item.contentIntent != null) Modifier.fillMaxWidth().clickable {
+        PixelShadeNotificationStore.open(item) { onFinish() }
     } else Modifier.fillMaxWidth()
     val duplicateTitle = item.title.trim().equals(item.appLabel.trim(), ignoreCase = true)
-    val verticalPadding = if (item.ongoing) 10.dp else 12.dp
-    val cardShape = if (item.ongoing) 18.dp else 22.dp
+    val verticalPadding = if (item.ongoing) 8.dp else 10.dp
+    val cardShape = if (item.ongoing) 16.dp else 20.dp
 
     Surface(clickable, shape = RoundedCornerShape(cardShape), color = background) {
-        Column(Modifier.padding(horizontal = 14.dp, vertical = verticalPadding), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Column(Modifier.padding(horizontal = 14.dp, vertical = verticalPadding), verticalArrangement = Arrangement.spacedBy(3.dp)) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                RuntimeNotificationArtwork(item, palette, Modifier.size(18.dp))
+                Spacer(Modifier.width(8.dp))
                 Text(item.appLabel, style = MaterialTheme.typography.labelMedium, color = palette.secondaryText, modifier = Modifier.weight(1f), maxLines = 1)
+                Text(notificationTimestamp(item.postTime), style = MaterialTheme.typography.labelSmall, color = palette.secondaryText, maxLines = 1)
                 if (item.clearable) {
-                    IconButton(onClick = { PixelShadeNotificationStore.dismiss(item.key) }, modifier = Modifier.size(30.dp)) {
-                        Icon(Icons.Default.Close, "Dismiss", Modifier.size(17.dp), tint = palette.secondaryText)
+                    IconButton(onClick = { PixelShadeNotificationStore.dismiss(item.key) }, modifier = Modifier.size(28.dp)) {
+                        Icon(Icons.Default.Close, "Dismiss", Modifier.size(16.dp), tint = palette.secondaryText)
                     }
                 }
             }
@@ -546,7 +593,7 @@ private fun RuntimeNotificationCard(item: ShadeNotification, palette: PixelShade
             if (item.actions.isNotEmpty()) {
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                     item.actions.take(3).forEach { action ->
-                        TextButton(onClick = { PixelShadeNotificationStore.runAction(action) }) { Text(action.title, maxLines = 1) }
+                        TextButton(onClick = { PixelShadeNotificationStore.runAction(item, action) }) { Text(action.title, maxLines = 1) }
                     }
                 }
             }
@@ -556,19 +603,31 @@ private fun RuntimeNotificationCard(item: ShadeNotification, palette: PixelShade
 
 @Composable
 private fun RuntimeMediaCard(item: ShadeNotification, palette: PixelShadePalette, background: Color, onFinish: () -> Unit) {
-    Surface(Modifier.fillMaxWidth().clickable { if (PixelShadeNotificationStore.open(item)) onFinish() }, shape = RoundedCornerShape(24.dp), color = background) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text(item.appLabel, style = MaterialTheme.typography.labelMedium, color = palette.secondaryText)
-            Text(item.title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold, color = palette.primaryText)
-            if (item.text.isNotBlank()) Text(item.text, style = MaterialTheme.typography.bodyMedium, color = palette.secondaryText, maxLines = 2)
+    val cardModifier = if (item.contentIntent != null) Modifier.fillMaxWidth().clickable {
+        PixelShadeNotificationStore.open(item) { onFinish() }
+    } else Modifier.fillMaxWidth()
+    Surface(cardModifier, shape = RoundedCornerShape(24.dp), color = background) {
+        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Surface(Modifier.size(56.dp), shape = RoundedCornerShape(16.dp), color = palette.inactiveTile) {
+                    Box(contentAlignment = Alignment.Center) { RuntimeNotificationArtwork(item, palette, Modifier.size(38.dp)) }
+                }
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text(item.appLabel, style = MaterialTheme.typography.labelMedium, color = palette.secondaryText, maxLines = 1)
+                    Text(item.title.ifBlank { item.appLabel }, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, color = palette.primaryText, maxLines = 1)
+                    if (item.text.isNotBlank()) Text(item.text, style = MaterialTheme.typography.bodyMedium, color = palette.secondaryText, maxLines = 1)
+                }
+            }
             if (item.actions.isNotEmpty()) {
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) {
                     item.actions.take(5).forEach { action ->
                         val icon = mediaActionIcon(action.title)
                         if (icon != null) {
-                            FilledIconButton(onClick = { PixelShadeNotificationStore.runAction(action) }) { Icon(icon, action.title) }
+                            IconButton(onClick = { PixelShadeNotificationStore.runAction(item, action) }, modifier = Modifier.size(42.dp)) {
+                                Icon(icon, action.title, Modifier.size(26.dp), tint = palette.primaryText)
+                            }
                         } else {
-                            TextButton(onClick = { PixelShadeNotificationStore.runAction(action) }) { Text(action.title, maxLines = 1) }
+                            TextButton(onClick = { PixelShadeNotificationStore.runAction(item, action) }) { Text(action.title, maxLines = 1) }
                         }
                     }
                 }
@@ -576,6 +635,26 @@ private fun RuntimeMediaCard(item: ShadeNotification, palette: PixelShadePalette
         }
     }
 }
+
+@Composable
+private fun RuntimeNotificationArtwork(item: ShadeNotification, palette: PixelShadePalette, modifier: Modifier) {
+    val context = LocalContext.current
+    val drawable = remember(item.key, item.packageName, item.artwork) {
+        runCatching {
+            item.artwork?.loadDrawable(context)
+                ?: context.packageManager.getApplicationIcon(item.packageName)
+        }.getOrNull()
+    }
+    if (drawable != null) {
+        AppOrDrawableIcon(item.packageName, drawable, null, modifier)
+    } else {
+        Icon(Icons.Default.Notifications, item.appLabel, modifier, tint = palette.secondaryText)
+    }
+}
+
+private fun notificationTimestamp(postTime: Long): String = runCatching {
+    DateFormat.getTimeInstance(DateFormat.SHORT).format(Date(postTime))
+}.getOrDefault("")
 
 private fun mediaActionIcon(title: String): ImageVector? {
     val value = title.trim().lowercase()
