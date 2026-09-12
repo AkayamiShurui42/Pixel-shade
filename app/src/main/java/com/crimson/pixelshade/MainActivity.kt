@@ -219,7 +219,7 @@ private fun PixelShadeSetup(
             Column(verticalArrangement = Arrangement.spacedBy(18.dp)) {
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
                     HubCategory("Tiles", Icons.Default.GridView, onOpenTiles)
-                    HubCategory("Sliders", Icons.Default.Tune) { onOpenEditor(PixelShadeEditorTab.SLIDERS) }
+                    HubCategory("Tile styles", Icons.Default.Gradient) { onOpenEditor(PixelShadeEditorTab.TILE_STYLES) }
                     HubCategory("Colors", Icons.Default.Palette) { onOpenEditor(PixelShadeEditorTab.COLORS) }
                 }
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {

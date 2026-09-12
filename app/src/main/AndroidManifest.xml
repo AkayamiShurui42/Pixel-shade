@@ -45,6 +45,8 @@
             android:exported="false"
             android:excludeFromRecents="true"
             android:noHistory="true"
+            android:finishOnTaskLaunch="true"
+            android:taskAffinity=""
             android:launchMode="singleTask" />
 
         <receiver android:name=".AdbOverrideReceiver" android:exported="true">
