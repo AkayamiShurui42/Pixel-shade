@@ -702,7 +702,7 @@ private fun PhoneHandleEditorCanvas(
                     }
                     ResizeGrip(Modifier.align(Alignment.CenterEnd).width(10.dp).fillMaxHeight()) { dx, _ -> onBottomWidth(dx / widthPx * 100f) }
                     ResizeGrip(Modifier.align(Alignment.TopCenter).height(10.dp).fillMaxWidth()) { _, dy ->
-                        onBottomHeight(-with(density) { dy.toDp().value } * 840f / maxHeight.value)
+                        onBottomHeight(-with(density) { dy.toDp().value } * 840f / phoneHeight.value)
                     }
                 }
 
