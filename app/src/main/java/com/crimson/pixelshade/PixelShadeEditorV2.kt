@@ -641,10 +641,12 @@ private fun PhoneHandleEditorCanvas(
                     .background(MaterialTheme.colorScheme.surfaceContainerLowest)
                     .border(1.dp, outline, RoundedCornerShape(30.dp))
             ) {
-                val widthPx = with(density) { maxWidth.toPx().coerceAtLeast(1f) }
-                val heightPx = with(density) { maxHeight.toPx().coerceAtLeast(1f) }
-                fun scaledY(runtimeDp: Float) = (maxHeight.value * runtimeDp / 840f).dp
-                fun scaledX(runtimeDp: Float) = (maxWidth.value * runtimeDp / 390f).dp
+                val phoneWidth = maxWidth
+                val phoneHeight = maxHeight
+                val widthPx = with(density) { phoneWidth.toPx().coerceAtLeast(1f) }
+                val heightPx = with(density) { phoneHeight.toPx().coerceAtLeast(1f) }
+                fun scaledY(runtimeDp: Float) = (phoneHeight.value * runtimeDp / 840f).dp
+                fun scaledX(runtimeDp: Float) = (phoneWidth.value * runtimeDp / 390f).dp
                 fun centeredStart(position: Float, length: androidx.compose.ui.unit.Dp, available: androidx.compose.ui.unit.Dp): androidx.compose.ui.unit.Dp =
                     (available * (position / 100f) - length / 2f).coerceIn(0.dp, (available - length).coerceAtLeast(0.dp))
 
@@ -672,14 +674,14 @@ private fun PhoneHandleEditorCanvas(
                     selected = selectedHandle == EditorHandle.TOP,
                     runtimeStripVisible = !hideRuntimeStrip,
                     onSelect = { onSelect(EditorHandle.TOP) },
-                    onDrag = { dx, dy -> onTopMove(dx / widthPx * 100f, with(density) { dy.toDp().value } * 840f / maxHeight.value) }
+                    onDrag = { dx, dy -> onTopMove(dx / widthPx * 100f, with(density) { dy.toDp().value } * 840f / phoneHeight.value) }
                 ) {
                     if (visibleHeight > 0f && !hideRuntimeStrip) {
                         Box(Modifier.fillMaxWidth().height(scaledY(visibleHeight).coerceAtMost(topHeight)).background(accent.copy(alpha = .50f)))
                     }
                     ResizeGrip(Modifier.align(Alignment.CenterEnd).width(10.dp).fillMaxHeight()) { dx, _ -> onTopWidth(dx / widthPx * 100f) }
                     ResizeGrip(Modifier.align(Alignment.BottomCenter).height(10.dp).fillMaxWidth()) { _, dy ->
-                        onTopHeight(with(density) { dy.toDp().value } * 840f / maxHeight.value)
+                        onTopHeight(with(density) { dy.toDp().value } * 840f / phoneHeight.value)
                     }
                 }
 
@@ -716,10 +718,10 @@ private fun PhoneHandleEditorCanvas(
                     onDrag = { _, dy -> onLeftMove(dy / heightPx * 100f) }
                 ) {
                     ResizeGrip(Modifier.align(Alignment.CenterEnd).width(10.dp).fillMaxHeight()) { dx, _ ->
-                        onLeftWidth(with(density) { dx.toDp().value } * 390f / maxWidth.value)
+                        onLeftWidth(with(density) { dx.toDp().value } * 390f / phoneWidth.value)
                     }
                     ResizeGrip(Modifier.align(Alignment.BottomCenter).height(10.dp).fillMaxWidth()) { _, dy ->
-                        onLeftHeight(with(density) { dy.toDp().value } * 840f / maxHeight.value)
+                        onLeftHeight(with(density) { dy.toDp().value } * 840f / phoneHeight.value)
                     }
                 }
 
@@ -735,10 +737,10 @@ private fun PhoneHandleEditorCanvas(
                     onDrag = { _, dy -> onRightMove(dy / heightPx * 100f) }
                 ) {
                     ResizeGrip(Modifier.align(Alignment.CenterStart).width(10.dp).fillMaxHeight()) { dx, _ ->
-                        onRightWidth(-with(density) { dx.toDp().value } * 390f / maxWidth.value)
+                        onRightWidth(-with(density) { dx.toDp().value } * 390f / phoneWidth.value)
                     }
                     ResizeGrip(Modifier.align(Alignment.BottomCenter).height(10.dp).fillMaxWidth()) { _, dy ->
-                        onRightHeight(with(density) { dy.toDp().value } * 840f / maxHeight.value)
+                        onRightHeight(with(density) { dy.toDp().value } * 840f / phoneHeight.value)
                     }
                 }
             }

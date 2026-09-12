@@ -210,7 +210,7 @@ class PixelShadeNotificationListener : NotificationListenerService() {
             isMedia = isMedia,
             contentIntent = notification.contentIntent,
             actions = actions,
-            artwork = runCatching { notification.largeIcon }.getOrNull()
+            artwork = runCatching { notification.getLargeIcon() }.getOrNull()
         )
     }
 }
