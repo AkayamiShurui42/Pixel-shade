@@ -18,6 +18,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -42,6 +43,8 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
@@ -53,6 +56,11 @@ import kotlin.math.roundToInt
 
 class PixelShadePanelV2Activity : ComponentActivity() {
     private lateinit var insetsController: WindowInsetsControllerCompat
+
+    companion object {
+        /** Used only by the editor preview; trigger gestures always begin at notifications. */
+        const val EXTRA_START_EXPANDED = "com.crimson.pixelshade.extra.START_EXPANDED"
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -80,7 +88,14 @@ class PixelShadePanelV2Activity : ComponentActivity() {
                 if (dark) dynamicDarkColorScheme(this) else dynamicLightColorScheme(this)
             } else if (dark) darkColorScheme() else lightColorScheme()
             MaterialTheme(colorScheme = scheme) {
-                Pixel17RuntimeShade(onFinish = { finishAndRemoveTask() })
+                Pixel17RuntimeShade(
+                    startState = if (intent.getBooleanExtra(EXTRA_START_EXPANDED, false)) {
+                        ShadeState.QUICK_SETTINGS
+                    } else {
+                        ShadeState.NOTIFICATIONS
+                    },
+                    onFinish = { finishAndRemoveTask() }
+                )
             }
         }
     }
@@ -92,7 +107,7 @@ class PixelShadePanelV2Activity : ComponentActivity() {
 
     override fun onPause() {
         restoreSystemStatusBar()
-        Log.i("PixelShadePanel", "panel paused; status bar restored for the next foreground surface")
+        Log.i("PixelShade.Panel", "panel paused; status bar restored for the next foreground surface")
         super.onPause()
     }
 
@@ -103,7 +118,7 @@ class PixelShadePanelV2Activity : ComponentActivity() {
 
     private fun hidePanelStatusBar() {
         insetsController.hide(WindowInsetsCompat.Type.statusBars())
-        Log.i("PixelShadePanel", "panel visible; Android status bar hidden for this window")
+        Log.i("PixelShade.Panel", "panel visible; Android status bar hidden for this window")
     }
 
     private fun restoreSystemStatusBar() {
@@ -113,16 +128,21 @@ class PixelShadePanelV2Activity : ComponentActivity() {
     }
 }
 
-private data class RuntimeTile(
+internal data class RuntimeTile(
     val id: String,
     val label: String,
     val icon: ImageVector,
-    val compact: Boolean,
-    val active: Boolean
+    val compact: Boolean = false,
+    val active: Boolean,
+    val secondaryLabel: String = "",
+    val strongActive: Boolean = false
 )
 
 @Composable
-private fun Pixel17RuntimeShade(onFinish: () -> Unit) {
+private fun Pixel17RuntimeShade(
+    startState: ShadeState,
+    onFinish: () -> Unit
+) {
     val context = LocalContext.current
     val palette = rememberPixelShadePalette(context, MaterialTheme.colorScheme)
     val opacity = PixelShadeConfig.panelOpacity(context)
@@ -156,6 +176,13 @@ private fun Pixel17RuntimeShade(onFinish: () -> Unit) {
     var dndOn by remember { mutableStateOf(SystemActionController.dndEnabled(context)) }
     var rotationOn by remember { mutableStateOf(SystemActionController.rotationEnabled(context)) }
     var closing by remember { mutableStateOf(false) }
+    var shadeState by remember { mutableStateOf(startState) }
+    val qsExpansion by animateFloatAsState(
+        targetValue = shadeState.quickSettingsExpansion(),
+        animationSpec = tween(durationMillis = 260, easing = FastOutSlowInEasing)
+    )
+    val dragThresholdPx = with(LocalDensity.current) { 42.dp.toPx() }
+    var shadeDragDistance by remember { mutableFloatStateOf(0f) }
 
     val progress = remember { androidx.compose.animation.core.Animatable(0f) }
     val scope = rememberCoroutineScope()
@@ -163,9 +190,18 @@ private fun Pixel17RuntimeShade(onFinish: () -> Unit) {
     fun closeShade() {
         if (closing) return
         closing = true
+        shadeState = ShadeState.CLOSED
+        Log.i("PixelShade.Panel", "shade state=closed")
         scope.launch {
             progress.animateTo(0f, tween(durationMillis = closeDurationMs, easing = FastOutSlowInEasing))
             onFinish()
+        }
+    }
+
+    fun collapseQuickSettings() {
+        if (shadeState == ShadeState.QUICK_SETTINGS) {
+            shadeState = ShadeState.NOTIFICATIONS
+            Log.i("PixelShade.Panel", "shade state=notifications")
         }
     }
 
@@ -176,7 +212,9 @@ private fun Pixel17RuntimeShade(onFinish: () -> Unit) {
         }
     }
 
-    BackHandler(enabled = !closing) { closeShade() }
+    BackHandler(enabled = !closing) {
+        if (shadeState == ShadeState.QUICK_SETTINGS) collapseQuickSettings() else closeShade()
+    }
 
     fun launchAndClose(intent: Intent) {
         val launched = runCatching {
@@ -184,6 +222,25 @@ private fun Pixel17RuntimeShade(onFinish: () -> Unit) {
             true
         }.getOrDefault(false)
         if (launched) onFinish()
+    }
+
+    val shadeStateGestureModifier = Modifier.pointerInput(shadeState, closing) {
+        detectVerticalDragGestures(
+            onDragStart = { shadeDragDistance = 0f },
+            onVerticalDrag = { _, dragAmount -> shadeDragDistance += dragAmount },
+            onDragEnd = {
+                when {
+                    shadeDragDistance >= dragThresholdPx && shadeState == ShadeState.NOTIFICATIONS -> {
+                        shadeState = ShadeState.QUICK_SETTINGS
+                        Log.i("PixelShade.Panel", "shade state=quick_settings")
+                    }
+                    shadeDragDistance <= -dragThresholdPx && shadeState == ShadeState.QUICK_SETTINGS -> collapseQuickSettings()
+                    shadeDragDistance <= -dragThresholdPx && shadeState == ShadeState.NOTIFICATIONS -> closeShade()
+                }
+                shadeDragDistance = 0f
+            },
+            onDragCancel = { shadeDragDistance = 0f }
+        )
     }
 
     LaunchedEffect(Unit) {
@@ -197,12 +254,12 @@ private fun Pixel17RuntimeShade(onFinish: () -> Unit) {
     }
 
     val tiles = listOf(
-        RuntimeTile("wifi", "Wi-Fi", Icons.Default.Wifi, compact = true, active = wifiOn),
-        RuntimeTile("mobile", "Mobile data", Icons.Default.SwapVert, compact = true, active = mobileOn),
-        RuntimeTile("bluetooth", "Bluetooth", Icons.Default.Bluetooth, compact = false, active = bluetoothOn),
-        RuntimeTile("flashlight", "Flashlight", Icons.Default.FlashlightOn, compact = false, active = torchOn),
-        RuntimeTile("dnd", "Modes", Icons.Default.DoNotDisturbOn, compact = false, active = dndOn),
-        RuntimeTile("rotation", "Rotation", Icons.Default.ScreenRotation, compact = false, active = rotationOn)
+        RuntimeTile("wifi", "Wi-Fi", Icons.Default.Wifi, compact = true, active = wifiOn, secondaryLabel = if (wifiOn) "Connected" else "Off"),
+        RuntimeTile("bluetooth", "Bluetooth", Icons.Default.Bluetooth, compact = true, active = bluetoothOn, secondaryLabel = if (bluetoothOn) "On" else "Off"),
+        RuntimeTile("flashlight", "Flashlight", Icons.Default.FlashlightOn, compact = true, active = torchOn, secondaryLabel = if (torchOn) "On" else "Off"),
+        RuntimeTile("dnd", "Modes", Icons.Default.DoNotDisturbOn, compact = true, active = dndOn, secondaryLabel = if (dndOn) "On" else "Off", strongActive = true),
+        RuntimeTile("mobile", "Mobile data", Icons.Default.SwapVert, active = mobileOn, secondaryLabel = if (mobileOn) "On" else "Off"),
+        RuntimeTile("rotation", "Rotation", Icons.Default.ScreenRotation, active = rotationOn, secondaryLabel = if (rotationOn) "Auto-rotate" else "Locked")
     )
 
     fun activate(tile: RuntimeTile) {
@@ -249,15 +306,29 @@ private fun Pixel17RuntimeShade(onFinish: () -> Unit) {
     ) {
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(start = panelPadding, end = panelPadding, top = maxOf(30.dp, cutoutTop + 12.dp), bottom = 30.dp),
+            contentPadding = PaddingValues(
+                start = panelPadding,
+                end = panelPadding,
+                top = maxOf(16.dp, cutoutTop + 8.dp),
+                bottom = if (showFooter && shadeState == ShadeState.QUICK_SETTINGS) 86.dp else 30.dp
+            ),
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             if (showHeader) {
                 item {
-                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
+                    Row(Modifier.fillMaxWidth().then(shadeStateGestureModifier), verticalAlignment = Alignment.Top) {
                         Column(Modifier.weight(1f)) {
-                            Text(systemStatus.time, style = MaterialTheme.typography.displaySmall, fontWeight = FontWeight.Medium, color = headerText)
-                            Text(systemStatus.date, style = MaterialTheme.typography.bodyLarge, color = palette.secondaryText)
+                            Text(
+                                systemStatus.time,
+                                style = if (qsExpansion < .5f) MaterialTheme.typography.headlineSmall else MaterialTheme.typography.displaySmall,
+                                fontWeight = FontWeight.Medium,
+                                color = headerText
+                            )
+                            Text(
+                                systemStatus.date,
+                                style = if (qsExpansion < .5f) MaterialTheme.typography.bodyMedium else MaterialTheme.typography.bodyLarge,
+                                color = palette.secondaryText
+                            )
                         }
                         if (showSystemIcons) {
                             Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(3.dp)) {
@@ -278,59 +349,83 @@ private fun Pixel17RuntimeShade(onFinish: () -> Unit) {
                 }
             }
 
+            if (qsExpansion > .001f) {
+                item {
+                    Box(
+                        Modifier.fillMaxWidth()
+                            .height(56.dp * qsExpansion.coerceAtLeast(.01f))
+                            .graphicsLayer { alpha = qsExpansion }
+                    ) {
+                        RuntimeBrightness(
+                            value = brightness,
+                            palette = palette,
+                            onValueChange = {
+                                brightness = it.coerceIn(.01f, 1f)
+                                if (Settings.System.canWrite(context)) {
+                                    Settings.System.putInt(context.contentResolver, Settings.System.SCREEN_BRIGHTNESS, (brightness * 255).roundToInt().coerceIn(1, 255))
+                                }
+                            },
+                            onSettings = { launchAndClose(Intent(Settings.ACTION_SETTINGS)) }
+                        )
+                    }
+                }
+            }
+
             item {
-                RuntimeBrightness(
-                    value = brightness,
+                RuntimeQuickSettingsMorph(
+                    tiles = tiles,
                     palette = palette,
-                    onValueChange = {
-                        brightness = it.coerceIn(.01f, 1f)
-                        if (Settings.System.canWrite(context)) {
-                            Settings.System.putInt(context.contentResolver, Settings.System.SCREEN_BRIGHTNESS, (brightness * 255).roundToInt().coerceIn(1, 255))
-                        }
-                    },
-                    onSettings = { launchAndClose(Intent(Settings.ACTION_SETTINGS)) }
+                    expansion = qsExpansion,
+                    tileHeight = tileHeight,
+                    hideText = hideTileText,
+                    textColor = tileText,
+                    onClick = { activate(it) }
                 )
             }
 
-            item {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        RuntimeCompactTile(tiles[0], palette, Modifier.weight(1f), tileHeight) { activate(tiles[0]) }
-                        RuntimeCompactTile(tiles[1], palette, Modifier.weight(1f), tileHeight) { activate(tiles[1]) }
-                        RuntimeWideTile(tiles[2], palette, Modifier.weight(2f), tileHeight, hideTileText, tileText) { activate(tiles[2]) }
-                    }
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        RuntimeWideTile(tiles[3], palette, Modifier.weight(1f), tileHeight, hideTileText, tileText) { activate(tiles[3]) }
-                        RuntimeWideTile(tiles[4], palette, Modifier.weight(1f), tileHeight, hideTileText, tileText) { activate(tiles[4]) }
-                    }
-                    RuntimeWideTile(tiles[5], palette, Modifier.fillMaxWidth(), tileHeight, hideTileText, tileText) { activate(tiles[5]) }
-                }
-            }
-
-            if (customTiles.isNotEmpty()) {
-                item { Text("Custom", style = MaterialTheme.typography.labelLarge, color = palette.secondaryText) }
-                runtimeCustomRows(customTiles).forEach { rowTiles ->
-                    item {
-                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            var used = 0
-                            rowTiles.forEach { tile ->
-                                val span = tile.widthUnits.coerceIn(1, 4)
-                                used += span
-                                RuntimeCustomTile(tile, palette, Modifier.weight(span.toFloat()), tileHeight, hideTileText, tileText) {
-                                    if (PixelShadeTileStore.launch(context, tile)) onFinish()
-                                }
+            if (shadeState == ShadeState.QUICK_SETTINGS) {
+                item {
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        Row(Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                            repeat(3) { index ->
+                                Surface(
+                                    Modifier.size(if (index == 0) 7.dp else 5.dp),
+                                    shape = CircleShape,
+                                    color = if (index == 0) palette.primaryText else palette.secondaryText.copy(alpha = .45f)
+                                ) {}
                             }
-                            if (used < 4) Spacer(Modifier.weight((4 - used).toFloat()))
+                        }
+                        IconButton(onClick = { launchAndClose(Intent(context, MainActivity::class.java)) }) {
+                            Icon(Icons.Default.Edit, "Edit Quick Settings", tint = footerText)
+                        }
+                    }
+                }
+
+                if (customTiles.isNotEmpty()) {
+                    item { Text("Custom", style = MaterialTheme.typography.labelLarge, color = palette.secondaryText) }
+                    runtimeCustomRows(customTiles).forEach { rowTiles ->
+                        item {
+                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                var used = 0
+                                rowTiles.forEach { tile ->
+                                    val span = tile.widthUnits.coerceIn(1, 4)
+                                    used += span
+                                    RuntimeCustomTile(tile, palette, Modifier.weight(span.toFloat()), tileHeight, hideTileText, tileText) {
+                                        if (PixelShadeTileStore.launch(context, tile)) onFinish()
+                                    }
+                                }
+                                if (used < 4) Spacer(Modifier.weight((4 - used).toFloat()))
+                            }
                         }
                     }
                 }
             }
 
-            if (mediaNotification != null) {
+            if (shadeState == ShadeState.NOTIFICATIONS && mediaNotification != null) {
                 item { RuntimeMediaCard(mediaNotification, palette, notificationBackground, onFinish) }
             }
 
-            if (showNotifications && regularNotifications.isNotEmpty()) {
+            if (shadeState == ShadeState.NOTIFICATIONS && showNotifications && regularNotifications.isNotEmpty()) {
                 item {
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                         Text("Notifications", style = MaterialTheme.typography.titleSmall, color = palette.secondaryText, modifier = Modifier.weight(1f))
@@ -355,21 +450,29 @@ private fun Pixel17RuntimeShade(onFinish: () -> Unit) {
                         RuntimeNotificationCard(regularNotifications[index], palette, notificationBackground, autoExpandNotifications, onFinish)
                     }
                 }
-            } else if (showNotifications && mediaNotification == null) {
+            } else if (shadeState == ShadeState.NOTIFICATIONS && showNotifications && mediaNotification == null) {
                 item {
                     Column(Modifier.fillMaxWidth().padding(vertical = 30.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Icon(Icons.Default.EmojiEvents, null, Modifier.size(28.dp), tint = palette.secondaryText)
                         Text("You're all caught up", color = palette.secondaryText)
                     }
                 }
+            } else if (shadeState == ShadeState.QUICK_SETTINGS && showNotifications && regularNotifications.isNotEmpty()) {
+                item {
+                    Text(
+                        "${regularNotifications.size} notification${if (regularNotifications.size == 1) "" else "s"}",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = palette.secondaryText
+                    )
+                }
             }
 
-            if (showFooter) {
+            if (showFooter && shadeState == ShadeState.QUICK_SETTINGS) {
                 item {
                     Surface(Modifier.fillMaxWidth(), shape = RoundedCornerShape(24.dp), color = footerBackground) {
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End, verticalAlignment = Alignment.CenterVertically) {
                             IconButton(onClick = { launchAndClose(Intent(context, MainActivity::class.java)) }) {
-                                Icon(Icons.Default.Edit, "Edit", tint = footerText)
+                                Icon(Icons.Default.Settings, "Pixel Shade settings", tint = footerText)
                             }
                             IconButton(enabled = PixelShadeAccessibilityService.isConnected(), onClick = {
                                 if (PixelShadeAccessibilityService.requestPowerDialog()) onFinish()
@@ -381,10 +484,105 @@ private fun Pixel17RuntimeShade(onFinish: () -> Unit) {
                 }
             }
 
-            item { RuntimeDismissHandle(handleColor = handleColor, onClose = { closeShade() }) }
+            item {
+                RuntimeDismissHandle(handleColor = handleColor) {
+                    if (shadeState == ShadeState.QUICK_SETTINGS) collapseQuickSettings() else closeShade()
+                }
+            }
         }
     }
 }
+
+@Composable
+private fun RuntimeQuickSettingsMorph(
+    tiles: List<RuntimeTile>,
+    palette: PixelShadePalette,
+    expansion: Float,
+    tileHeight: Dp,
+    hideText: Boolean,
+    textColor: Color,
+    onClick: (RuntimeTile) -> Unit
+) {
+    val context = LocalContext.current
+    val progress = expansion.coerceIn(0f, 1f)
+    val compactDiameter = 52.dp
+    val compactHeight = 82.dp
+    val gap = 8.dp
+    val expandedHeight = tileHeight.coerceIn(44.dp, 96.dp)
+    val expandedCorner = PixelShadeConfig.tileCornerDp(context).coerceIn(20f, 24f).dp
+    val brushes = pixelShadeTileBrushes(context, palette.activeTile, palette.inactiveTile)
+
+    BoxWithConstraints(
+        Modifier.fillMaxWidth().height(interpolateShadeDp(compactHeight, expandedHeight * 3 + gap * 2, progress))
+    ) {
+        val compactCellWidth = (maxWidth.value / 4f).dp
+        val expandedWidth = ((maxWidth.value - gap.value) / 2f).dp
+        tiles.take(6).forEachIndexed { index, tile ->
+            val tileProgress = if (index < 4) progress else ((progress - .42f) / .58f).coerceIn(0f, 1f)
+            val row = index / 2
+            val column = index % 2
+            val expandedX = if (column == 0) 0.dp else expandedWidth + gap
+            val expandedY = (expandedHeight + gap) * row
+            val compactX = if (index < 4) {
+                compactCellWidth * index + (compactCellWidth - compactDiameter) / 2f
+            } else {
+                expandedX
+            }
+            val compactY = if (index < 4) 0.dp else expandedY
+            val width = interpolateShadeDp(compactDiameter, expandedWidth, tileProgress)
+            val height = interpolateShadeDp(compactDiameter, expandedHeight, tileProgress)
+            val shape = RoundedCornerShape(interpolateShadeDp(compactDiameter / 2f, expandedCorner, tileProgress))
+            val foreground = if (tile.active) palette.activeIcon else palette.inactiveIcon
+            val brush = if (tile.active) brushes.active else brushes.inactive
+
+            Box(
+                Modifier.offset(
+                    x = interpolateShadeDp(compactX, expandedX, tileProgress),
+                    y = interpolateShadeDp(compactY, expandedY, tileProgress)
+                ).width(width).height(height + 26.dp)
+                    .graphicsLayer { alpha = if (index < 4) 1f else tileProgress }
+            ) {
+                Box(
+                    Modifier.width(width).height(height).clip(shape).background(brush).clickable { onClick(tile) }
+                ) {
+                    val iconX = interpolateShadeDp(((width.value - 24f) / 2f).dp, 16.dp, tileProgress)
+                    Icon(
+                        tile.icon,
+                        tile.label,
+                        Modifier.offset(x = iconX, y = (height - 24.dp) / 2f).size(24.dp),
+                        tint = foreground
+                    )
+                    if (!hideText) {
+                        Column(
+                            Modifier.align(Alignment.CenterStart).padding(start = 52.dp, end = 8.dp)
+                                .graphicsLayer { alpha = tileProgress },
+                            verticalArrangement = Arrangement.spacedBy(1.dp)
+                        ) {
+                            Text(tile.label, style = MaterialTheme.typography.labelLarge, color = if (tile.active) foreground else textColor, maxLines = 1)
+                            if (tile.secondaryLabel.isNotBlank()) {
+                                Text(tile.secondaryLabel, style = MaterialTheme.typography.labelSmall, color = if (tile.active) foreground.copy(alpha = .8f) else palette.secondaryText, maxLines = 1)
+                            }
+                        }
+                        if (index < 4) {
+                            Text(
+                                tile.label,
+                                Modifier.align(Alignment.TopCenter).offset(y = height + 3.dp).graphicsLayer { alpha = 1f - tileProgress },
+                                style = MaterialTheme.typography.labelSmall,
+                                color = textColor,
+                                textAlign = TextAlign.Center,
+                                maxLines = 1
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+private fun interpolateShadeDp(start: Dp, end: Dp, progress: Float): Dp =
+    (start.value + (end.value - start.value) * progress.coerceIn(0f, 1f)).dp
+
 
 @Composable
 private fun RuntimeDismissHandle(handleColor: Color, onClose: () -> Unit) {
