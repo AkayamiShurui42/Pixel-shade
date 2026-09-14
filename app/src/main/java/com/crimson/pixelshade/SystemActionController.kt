@@ -13,7 +13,7 @@ import android.net.wifi.WifiManager
 import android.os.Handler
 import android.os.Looper
 import android.provider.Settings
-import rikka.shizuku.Shizuku
+import af.shizuku.Shizuku
 import java.util.concurrent.Executors
 
 object SystemActionController {

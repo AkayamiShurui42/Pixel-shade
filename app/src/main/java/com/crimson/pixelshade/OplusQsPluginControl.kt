@@ -5,7 +5,7 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Handler
 import android.os.Looper
-import rikka.shizuku.Shizuku
+import af.shizuku.Shizuku
 import java.util.concurrent.Executors
 
 object OplusQsPluginControl {

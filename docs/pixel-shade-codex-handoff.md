@@ -6,7 +6,7 @@ This file is the durable development handoff for the Pixel Shade project. It exi
 
 Repository: `AkayamiShurui42/Pixel-shade`
 
-Pixel Shade is a replacement Android notification shade / Quick Settings surface targeting modern OnePlus/OxygenOS behavior while keeping a Pixel/AOSP Android-17 visual direction.
+Pixel Shade is a replacement Android notification shade / Quick Settings surface for supported Android devices, with an uncompromising Pixel/AOSP Android-17 visual direction. OEM-specific code exists only for compatibility, never as the visual target.
 
 Bottom Quick Settings is used as a feature and settings-capability reference. It is not a visual-cloning target. The detailed mapping from the supplied device screenshots is in `docs/bottom-quick-settings-parity.md`.
 
@@ -83,14 +83,13 @@ When vendor behavior is uncertain, prefer current repository code and device evi
 
 ## Established edge-handle behavior
 
-The supplied Bottom Quick Settings screenshots explicitly establish these semantics:
+The current product direction supersedes the older Bottom Quick Settings reference gesture mapping:
 
-- top handle: swipe down to open;
-- bottom handle: swipe up to open;
-- left handle: swipe up to open;
-- right handle: swipe up to open.
+- top handle: swipe downward to open;
+- left, right and lower-left bypass handles: sweep downward to open;
+- bottom handle: never open on a single tap; the user chooses either a double tap or a downward swipe.
 
-The side handles should not be changed to inward horizontal swipes unless the user asks for a different model.
+Do not use inward horizontal side swipes. The lower-left and side triggers provide a status-bar-independent route to the replacement shade while avoiding Android system navigation gestures.
 
 Settings-parity work includes per-edge enablement and geometry, a hidden visual handle that can retain its touch region, environment visibility rules where implemented, activation threshold, and haptic behavior.
 

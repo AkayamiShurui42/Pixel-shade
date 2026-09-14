@@ -22,11 +22,14 @@ jobs:
       - name: Checkout Pixel Shade
         uses: actions/checkout@v7
 
-      - name: Checkout Shizuku Plus API
+      - name: Checkout pinned Shizuku Plus client API
         uses: actions/checkout@v7
         with:
-          repository: thejaustin/ShizukuPlus-API
-          ref: master
+          # Pixel Shade imports the af.shizuku client/provider namespace.
+          # Pin the matching dual-binder release instead of staging the older
+          # rikka.shizuku-only upstream client, which cannot provide that API.
+          repository: AkayamiShurui42/ShizukuPlus-API
+          ref: 523816ca7c34a6f8090a04880e36195951849cca
           path: .ci/ShizukuPlus-API
 
       - name: Set up JDK 17

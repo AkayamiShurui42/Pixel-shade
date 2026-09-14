@@ -104,7 +104,7 @@ class PixelShadeTriggerService : Service() {
         val centerX = (screenW * PixelShadeConfig.bottomXPercent(this).coerceIn(0f, 100f) / 100f).roundToInt()
         val view = FrameLayout(this).apply {
             setBackgroundColor(0x00000000)
-            setOnTouchListener(GestureListener(TriggerEdge.BOTTOM, allowBrightness = true))
+            setOnTouchListener(GestureListener(TriggerEdge.BOTTOM, allowBrightness = false))
             if (visibleHeight > 0) {
                 addView(View(this@PixelShadeTriggerService).apply {
                     setBackgroundColor(PixelShadeConfig.triggerColor(this@PixelShadeTriggerService))
@@ -162,6 +162,9 @@ class PixelShadeTriggerService : Service() {
         private var y0 = 0f
         private var b0 = 128
         private var mode = 0
+        private var lastBottomTapAt = 0L
+        private var lastBottomTapX = 0f
+        private var lastBottomTapY = 0f
 
         override fun onTouch(v: View, e: MotionEvent): Boolean {
             if (!PixelShadeRuntime.isEnabled(this@PixelShadeTriggerService)) return false
@@ -185,7 +188,7 @@ class PixelShadeTriggerService : Service() {
                     if (mode == 0) {
                         if (brightnessEnabled && abs(dx) >= deadZone && abs(dx) > abs(dy) * 1.2f) {
                             mode = 2
-                        } else if (edgeGestureDistance(dx, dy) >= deadZone) {
+                        } else if ((edge != TriggerEdge.BOTTOM || PixelShadeConfig.bottomActivation(this@PixelShadeTriggerService) == BottomTriggerActivation.SWIPE_DOWN) && edgeGestureDistance(dx, dy) >= deadZone) {
                             mode = 1
                         }
                     }
@@ -199,7 +202,11 @@ class PixelShadeTriggerService : Service() {
                 MotionEvent.ACTION_UP -> {
                     val dx = e.rawX - x0
                     val dy = e.rawY - y0
-                    if (mode == 1 && edgeGestureDistance(dx, dy) >= pullDistance) {
+                    val openedBySwipe = mode == 1 && edgeGestureDistance(dx, dy) >= pullDistance
+                    val openedByDoubleTap = edge == TriggerEdge.BOTTOM &&
+                        PixelShadeConfig.bottomActivation(this@PixelShadeTriggerService) == BottomTriggerActivation.DOUBLE_TAP &&
+                        isBottomDoubleTap(v, e, deadZone)
+                    if (openedBySwipe || openedByDoubleTap) {
                         if (PixelShadeConfig.vibrateOnTouch(this@PixelShadeTriggerService)) {
                             runCatching { v.performHapticFeedback(HapticFeedbackConstants.CONFIRM) }
                         }
@@ -213,18 +220,46 @@ class PixelShadeTriggerService : Service() {
         }
 
         private fun edgeGestureDistance(dx: Float, dy: Float): Float = when (edge) {
-            TriggerEdge.TOP -> if (dy > 0f && abs(dy) > abs(dx) * 1.15f) dy else 0f
-            TriggerEdge.BOTTOM -> if (dy < 0f && abs(dy) > abs(dx) * 1.15f) -dy else 0f
+            TriggerEdge.TOP,
+            TriggerEdge.BOTTOM,
             TriggerEdge.LEFT,
-            TriggerEdge.RIGHT -> if (dy < 0f && abs(dy) > abs(dx) * 1.15f) -dy else 0f
+            TriggerEdge.RIGHT -> if (dy > 0f && abs(dy) > abs(dx) * 1.15f) dy else 0f
+        }
+
+        private fun isBottomDoubleTap(v: View, e: MotionEvent, deadZone: Float): Boolean {
+            val isTap = abs(e.rawX - x0) <= deadZone && abs(e.rawY - y0) <= deadZone
+            if (!isTap) {
+                lastBottomTapAt = 0L
+                return false
+            }
+            val now = e.eventTime
+            val slop = ViewConfiguration.get(v.context).scaledDoubleTapSlop.toFloat()
+            val doubleTap = lastBottomTapAt > 0L &&
+                now - lastBottomTapAt <= ViewConfiguration.getDoubleTapTimeout() &&
+                abs(e.rawX - lastBottomTapX) <= slop && abs(e.rawY - lastBottomTapY) <= slop
+            if (doubleTap) {
+                lastBottomTapAt = 0L
+                return true
+            }
+            lastBottomTapAt = now
+            lastBottomTapX = e.rawX
+            lastBottomTapY = e.rawY
+            return false
         }
     }
 
     private fun openShade() {
         if (!PixelShadeRuntime.isEnabled(this)) return
-        if (PixelShadeConfig.suppressStockShade(this)) PixelShadeAccessibilityService.requestCollapse()
-        startActivity(Intent(this, PixelShadePanelV2Activity::class.java)
-            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_NO_ANIMATION))
+        val launchShade = {
+            startActivity(Intent(this, PixelShadePanelV2Activity::class.java)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_NO_ANIMATION))
+        }
+        if (PixelShadeConfig.suppressStockShade(this)) {
+            PixelShadeAccessibilityService.requestCollapse()
+            StatusBarSuppression.collapsePanels(this, launchShade)
+        } else {
+            launchShade()
+        }
     }
 
     private fun createChannel() {

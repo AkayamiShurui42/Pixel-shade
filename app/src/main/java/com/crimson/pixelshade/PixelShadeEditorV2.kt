@@ -60,6 +60,7 @@ fun PixelShadeEditorV2(
     var bottomWidth by remember { mutableFloatStateOf(PixelShadeConfig.bottomWidthPercent(context)) }
     var bottomHeight by remember { mutableFloatStateOf(PixelShadeConfig.bottomHeightDp(context)) }
     var bottomX by remember { mutableFloatStateOf(PixelShadeConfig.bottomXPercent(context)) }
+    var bottomActivation by remember { mutableStateOf(PixelShadeConfig.bottomActivation(context)) }
 
     var leftEnabled by remember { mutableStateOf(PixelShadeConfig.leftEnabled(context)) }
     var leftWidth by remember { mutableFloatStateOf(PixelShadeConfig.leftWidthDp(context)) }
@@ -187,6 +188,7 @@ fun PixelShadeEditorV2(
             .putFloat(PixelShadeConfig.KEY_BOTTOM_WIDTH_PERCENT, bottomWidth)
             .putFloat(PixelShadeConfig.KEY_BOTTOM_HEIGHT_DP, bottomHeight)
             .putFloat(PixelShadeConfig.KEY_BOTTOM_X_PERCENT, bottomX)
+            .putString(PixelShadeConfig.KEY_BOTTOM_ACTIVATION, bottomActivation.name)
             .putBoolean(PixelShadeConfig.KEY_LEFT_ENABLED, leftEnabled)
             .putFloat(PixelShadeConfig.KEY_LEFT_WIDTH_DP, leftWidth)
             .putFloat(PixelShadeConfig.KEY_LEFT_HEIGHT_DP, leftHeight)
@@ -265,10 +267,11 @@ fun PixelShadeEditorV2(
         bottomWidth = 100f
         bottomHeight = 12f
         bottomX = 50f
+        bottomActivation = BottomTriggerActivation.DOUBLE_TAP
         leftEnabled = false
         leftWidth = 18f
         leftHeight = 180f
-        leftY = 40f
+        leftY = 72f
         rightEnabled = false
         rightWidth = 18f
         rightHeight = 180f
@@ -280,8 +283,8 @@ fun PixelShadeEditorV2(
         suppressStock = true
         vibrateOnTouch = true
         autoCloseTile = false
-        opacity = .92f
-        blur = 24f
+        opacity = 1f
+        blur = 0f
         tileCorner = 24f
         panelPadding = 18f
         tileHeight = 62f
@@ -322,7 +325,7 @@ fun PixelShadeEditorV2(
     ) { padding ->
         Column(Modifier.fillMaxSize().padding(padding)) {
             Text(
-                "Live phone preview · drag a handle or its resize grips. The shade preview is separate from trigger editing.",
+                "Trigger placement canvas · drag a handle or its resize grips. Open the live shade preview below to inspect the real runtime surface.",
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -406,21 +409,36 @@ fun PixelShadeEditorV2(
                             Text("Bottom handle", style = MaterialTheme.typography.titleSmall)
                             EditorSwitch("Enable bottom handle", bottomEnabled) { bottomEnabled = it }
                             if (bottomEnabled) {
+                                Text(
+                                    "Single taps intentionally do nothing so navigation gestures stay untouched.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                val bottomModes = listOf(BottomTriggerActivation.DOUBLE_TAP, BottomTriggerActivation.SWIPE_DOWN)
+                                SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
+                                    bottomModes.forEachIndexed { index, mode ->
+                                        SegmentedButton(
+                                            selected = bottomActivation == mode,
+                                            onClick = { bottomActivation = mode },
+                                            shape = SegmentedButtonDefaults.itemShape(index, bottomModes.size)
+                                        ) { Text(if (mode == BottomTriggerActivation.DOUBLE_TAP) "Double tap" else "Swipe down") }
+                                    }
+                                }
                                 EditorSlider("Length", bottomWidth, 10f..100f, "${bottomWidth.roundToInt()}%") { bottomWidth = it }
                                 EditorSlider("Size", bottomHeight, 2f..64f, "${bottomHeight.roundToInt()} dp") { bottomHeight = it }
                                 EditorSlider("Position", bottomX, 0f..100f, "${bottomX.roundToInt()}%") { bottomX = it }
                             }
                             HorizontalDivider()
-                            Text("Left handle", style = MaterialTheme.typography.titleSmall)
-                            EditorSwitch("Enable left handle", leftEnabled) { leftEnabled = it }
+                            Text("Lower-left side bypass", style = MaterialTheme.typography.titleSmall)
+                            EditorSwitch("Enable lower-left bypass", leftEnabled) { leftEnabled = it }
                             if (leftEnabled) {
                                 EditorSlider("Length", leftHeight, 40f..900f, "${leftHeight.roundToInt()} dp") { leftHeight = it }
                                 EditorSlider("Size", leftWidth, 2f..64f, "${leftWidth.roundToInt()} dp") { leftWidth = it }
                                 EditorSlider("Position", leftY, 0f..100f, "${leftY.roundToInt()}%") { leftY = it }
                             }
                             HorizontalDivider()
-                            Text("Right handle", style = MaterialTheme.typography.titleSmall)
-                            EditorSwitch("Enable right handle", rightEnabled) { rightEnabled = it }
+                            Text("Right-side bypass", style = MaterialTheme.typography.titleSmall)
+                            EditorSwitch("Enable right-side bypass", rightEnabled) { rightEnabled = it }
                             if (rightEnabled) {
                                 EditorSlider("Length", rightHeight, 40f..900f, "${rightHeight.roundToInt()} dp") { rightHeight = it }
                                 EditorSlider("Size", rightWidth, 2f..64f, "${rightWidth.roundToInt()} dp") { rightWidth = it }
@@ -431,6 +449,26 @@ fun PixelShadeEditorV2(
 
                     PixelShadeEditorTab.LAYOUT -> {
                         EditorSection("Pixel 17 layout", Icons.Default.DashboardCustomize) {
+                            Text(
+                                "Live runtime preview",
+                                style = MaterialTheme.typography.titleSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Pixel17RuntimeShadePreview(Modifier.fillMaxWidth())
+                            OutlinedButton(
+                                onClick = {
+                                    context.startActivity(
+                                        Intent(context, PixelShadePanelV2Activity::class.java)
+                                            .putExtra(PixelShadePanelV2Activity.EXTRA_START_EXPANDED, true)
+                                    )
+                                },
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Icon(Icons.Default.Fullscreen, null)
+                                Spacer(Modifier.width(8.dp))
+                                Text("Open fullscreen live shade")
+                            }
+                            HorizontalDivider()
                             FilledTonalButton(onClick = onOpenTiles, modifier = Modifier.fillMaxWidth()) {
                                 Icon(Icons.Default.GridView, null)
                                 Spacer(Modifier.width(8.dp))
@@ -451,14 +489,6 @@ fun PixelShadeEditorV2(
                             EditorSwitch("Horizontal trigger swipe changes brightness", brightnessGesture) { brightnessGesture = it }
                             if (brightnessGesture) {
                                 EditorSlider("Brightness sensitivity", brightnessSensitivity, .25f..3f, String.format("%.2fx", brightnessSensitivity)) { brightnessSensitivity = it }
-                            }
-                            OutlinedButton(
-                                onClick = { context.startActivity(Intent(context, PixelShadePanelV2Activity::class.java)) },
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                Icon(Icons.Default.Visibility, null)
-                                Spacer(Modifier.width(8.dp))
-                                Text("Preview saved shade")
                             }
                         }
                     }

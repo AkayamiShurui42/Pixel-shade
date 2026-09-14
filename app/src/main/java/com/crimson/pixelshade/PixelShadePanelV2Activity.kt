@@ -331,17 +331,25 @@ private fun Pixel17RuntimeShade(
                             )
                         }
                         if (showSystemIcons) {
-                            Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                                Text(systemStatus.connectionLabel, style = MaterialTheme.typography.labelMedium, color = headerText)
-                                Row(horizontalArrangement = Arrangement.spacedBy(5.dp), verticalAlignment = Alignment.CenterVertically) {
-                                    when (systemStatus.transport) {
-                                        RuntimeTransport.WIFI -> Icon(Icons.Default.Wifi, "Wi-Fi", Modifier.size(15.dp), tint = headerText)
-                                        RuntimeTransport.CELLULAR -> Icon(Icons.Default.SignalCellularAlt, "Cellular", Modifier.size(15.dp), tint = headerText)
-                                        else -> Unit
-                                    }
-                                    if (systemStatus.charging) Icon(Icons.Default.Bolt, "Charging", Modifier.size(14.dp), tint = headerText)
-                                    Icon(Icons.Default.BatteryFull, "Battery", Modifier.size(15.dp), tint = headerText)
-                                    Text(if (systemStatus.batteryPercent >= 0) "${systemStatus.batteryPercent}%" else "—", style = MaterialTheme.typography.labelSmall, color = headerText)
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                when (systemStatus.transport) {
+                                    RuntimeTransport.WIFI -> Icon(Icons.Default.Wifi, "Wi-Fi", Modifier.size(18.dp), tint = headerText)
+                                    RuntimeTransport.CELLULAR -> Icon(Icons.Default.SignalCellularAlt, "Cellular", Modifier.size(18.dp), tint = headerText)
+                                    else -> Unit
+                                }
+                                if (systemStatus.charging) Icon(Icons.Default.Bolt, "Charging", Modifier.size(17.dp), tint = headerText)
+                                Icon(Icons.Default.BatteryFull, "Battery", Modifier.size(18.dp), tint = headerText)
+                                if (systemStatus.batteryPercent >= 0) {
+                                    Text("${systemStatus.batteryPercent}", style = MaterialTheme.typography.labelMedium, color = headerText)
+                                }
+                                IconButton(
+                                    onClick = { launchAndClose(Intent(context, MainActivity::class.java)) },
+                                    modifier = Modifier.size(36.dp)
+                                ) {
+                                    Icon(Icons.Default.Settings, "Pixel Shade settings", Modifier.size(21.dp), tint = headerText)
                                 }
                             }
                         }
@@ -505,8 +513,9 @@ private fun RuntimeQuickSettingsMorph(
 ) {
     val context = LocalContext.current
     val progress = expansion.coerceIn(0f, 1f)
-    val compactDiameter = 52.dp
-    val compactHeight = 82.dp
+    val compactSize = 56.dp
+    val compactHeight = 56.dp
+    val compactCorner = 16.dp
     val gap = 8.dp
     val expandedHeight = tileHeight.coerceIn(44.dp, 96.dp)
     val expandedCorner = PixelShadeConfig.tileCornerDp(context).coerceIn(20f, 24f).dp
@@ -524,14 +533,14 @@ private fun RuntimeQuickSettingsMorph(
             val expandedX = if (column == 0) 0.dp else expandedWidth + gap
             val expandedY = (expandedHeight + gap) * row
             val compactX = if (index < 4) {
-                compactCellWidth * index + (compactCellWidth - compactDiameter) / 2f
+                compactCellWidth * index + (compactCellWidth - compactSize) / 2f
             } else {
                 expandedX
             }
             val compactY = if (index < 4) 0.dp else expandedY
-            val width = interpolateShadeDp(compactDiameter, expandedWidth, tileProgress)
-            val height = interpolateShadeDp(compactDiameter, expandedHeight, tileProgress)
-            val shape = RoundedCornerShape(interpolateShadeDp(compactDiameter / 2f, expandedCorner, tileProgress))
+            val width = interpolateShadeDp(compactSize, expandedWidth, tileProgress)
+            val height = interpolateShadeDp(compactSize, expandedHeight, tileProgress)
+            val shape = RoundedCornerShape(interpolateShadeDp(compactCorner, expandedCorner, tileProgress))
             val foreground = if (tile.active) palette.activeIcon else palette.inactiveIcon
             val brush = if (tile.active) brushes.active else brushes.inactive
 
@@ -539,11 +548,11 @@ private fun RuntimeQuickSettingsMorph(
                 Modifier.offset(
                     x = interpolateShadeDp(compactX, expandedX, tileProgress),
                     y = interpolateShadeDp(compactY, expandedY, tileProgress)
-                ).width(width).height(height + 26.dp)
+                ).width(width).height(height)
                     .graphicsLayer { alpha = if (index < 4) 1f else tileProgress }
             ) {
                 Box(
-                    Modifier.width(width).height(height).clip(shape).background(brush).clickable { onClick(tile) }
+                    Modifier.fillMaxSize().clip(shape).background(brush).clickable { onClick(tile) }
                 ) {
                     val iconX = interpolateShadeDp(((width.value - 24f) / 2f).dp, 16.dp, tileProgress)
                     Icon(
@@ -563,19 +572,65 @@ private fun RuntimeQuickSettingsMorph(
                                 Text(tile.secondaryLabel, style = MaterialTheme.typography.labelSmall, color = if (tile.active) foreground.copy(alpha = .8f) else palette.secondaryText, maxLines = 1)
                             }
                         }
-                        if (index < 4) {
-                            Text(
-                                tile.label,
-                                Modifier.align(Alignment.TopCenter).offset(y = height + 3.dp).graphicsLayer { alpha = 1f - tileProgress },
-                                style = MaterialTheme.typography.labelSmall,
-                                color = textColor,
-                                textAlign = TextAlign.Center,
-                                maxLines = 1
-                            )
-                        }
                     }
                 }
             }
+        }
+    }
+}
+
+@Composable
+internal fun Pixel17RuntimeShadePreview(modifier: Modifier = Modifier) {
+    val context = LocalContext.current
+    val palette = rememberPixelShadePalette(context, MaterialTheme.colorScheme)
+    val status = rememberRuntimeSystemStatus(context)
+    val headerText = PixelShadeThemeEngine.resolvedColor(context, PixelShadeThemeEngine.KEY_HEADER_TEXT, palette.primaryText)
+    val tileText = PixelShadeThemeEngine.resolvedColor(context, PixelShadeThemeEngine.KEY_TILE_TEXT, palette.primaryText)
+    val tiles = listOf(
+        RuntimeTile("wifi", "Wi-Fi", Icons.Default.Wifi, active = true, secondaryLabel = "Connected"),
+        RuntimeTile("bluetooth", "Bluetooth", Icons.Default.Bluetooth, active = false, secondaryLabel = "Off"),
+        RuntimeTile("flashlight", "Flashlight", Icons.Default.FlashlightOn, active = false, secondaryLabel = "Off"),
+        RuntimeTile("dnd", "Modes", Icons.Default.DoNotDisturbOn, active = false, secondaryLabel = "Off"),
+        RuntimeTile("mobile", "Mobile data", Icons.Default.SwapVert, active = true, secondaryLabel = "On"),
+        RuntimeTile("rotation", "Rotation", Icons.Default.ScreenRotation, active = true, secondaryLabel = "Auto-rotate")
+    )
+
+    Surface(
+        modifier = modifier.clip(RoundedCornerShape(28.dp)),
+        color = palette.panel
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text(status.time, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Medium, color = headerText)
+                    Text(status.date, style = MaterialTheme.typography.bodySmall, color = palette.secondaryText)
+                }
+                Icon(Icons.Default.Wifi, "Wi-Fi", Modifier.size(18.dp), tint = headerText)
+                Spacer(Modifier.width(8.dp))
+                Icon(Icons.Default.BatteryFull, "Battery", Modifier.size(18.dp), tint = headerText)
+                if (status.batteryPercent >= 0) {
+                    Spacer(Modifier.width(4.dp))
+                    Text("${status.batteryPercent}", style = MaterialTheme.typography.labelMedium, color = headerText)
+                }
+            }
+            RuntimeBrightness(
+                value = .72f,
+                palette = palette,
+                onValueChange = {},
+                onSettings = {}
+            )
+            RuntimeQuickSettingsMorph(
+                tiles = tiles,
+                palette = palette,
+                expansion = 1f,
+                tileHeight = PixelShadeConfig.tileHeightDp(context).coerceIn(44f, 96f).dp,
+                hideText = PixelShadeConfig.hideTileText(context),
+                textColor = tileText,
+                onClick = {}
+            )
         }
     }
 }

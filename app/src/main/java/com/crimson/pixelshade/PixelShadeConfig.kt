@@ -3,6 +3,16 @@ package com.crimson.pixelshade
 import android.content.Context
 import android.graphics.Color
 
+enum class BottomTriggerActivation {
+    DOUBLE_TAP,
+    SWIPE_DOWN;
+
+    companion object {
+        fun fromStored(value: String?): BottomTriggerActivation =
+            values().firstOrNull { it.name == value } ?: DOUBLE_TAP
+    }
+}
+
 object PixelShadeConfig {
     private const val PREFS = "pixel_shade_settings"
 
@@ -27,6 +37,7 @@ object PixelShadeConfig {
     const val KEY_BOTTOM_WIDTH_PERCENT = "bottom_width_percent"
     const val KEY_BOTTOM_HEIGHT_DP = "bottom_height_dp"
     const val KEY_BOTTOM_X_PERCENT = "bottom_x_percent"
+    const val KEY_BOTTOM_ACTIVATION = "bottom_activation"
 
     // Trigger visibility / environment rules
     const val KEY_HIDE_HANDLE_ICON = "hide_handle_icon"
@@ -98,7 +109,7 @@ object PixelShadeConfig {
     fun leftEnabled(context: Context) = prefs(context).getBoolean(KEY_LEFT_ENABLED, false)
     fun leftWidthDp(context: Context) = prefs(context).getFloat(KEY_LEFT_WIDTH_DP, 18f)
     fun leftHeightDp(context: Context) = prefs(context).getFloat(KEY_LEFT_HEIGHT_DP, 180f)
-    fun leftYPercent(context: Context) = prefs(context).getFloat(KEY_LEFT_Y_PERCENT, 40f)
+    fun leftYPercent(context: Context) = prefs(context).getFloat(KEY_LEFT_Y_PERCENT, 72f)
     fun rightEnabled(context: Context) = prefs(context).getBoolean(KEY_RIGHT_ENABLED, false)
     fun rightWidthDp(context: Context) = prefs(context).getFloat(KEY_RIGHT_WIDTH_DP, 18f)
     fun rightHeightDp(context: Context) = prefs(context).getFloat(KEY_RIGHT_HEIGHT_DP, 180f)
@@ -107,6 +118,7 @@ object PixelShadeConfig {
     fun bottomWidthPercent(context: Context) = prefs(context).getFloat(KEY_BOTTOM_WIDTH_PERCENT, 100f)
     fun bottomHeightDp(context: Context) = prefs(context).getFloat(KEY_BOTTOM_HEIGHT_DP, 12f)
     fun bottomXPercent(context: Context) = prefs(context).getFloat(KEY_BOTTOM_X_PERCENT, 50f)
+    fun bottomActivation(context: Context) = BottomTriggerActivation.fromStored(prefs(context).getString(KEY_BOTTOM_ACTIVATION, null))
 
     fun hideHandleIcon(context: Context) = prefs(context).getBoolean(KEY_HIDE_HANDLE_ICON, false)
     fun hideInFullscreen(context: Context) = prefs(context).getBoolean(KEY_HIDE_IN_FULLSCREEN, false)
@@ -125,8 +137,8 @@ object PixelShadeConfig {
     fun useDeviceHaptics(context: Context) = prefs(context).getBoolean(KEY_USE_DEVICE_HAPTICS, true)
     fun autoCloseTile(context: Context) = prefs(context).getBoolean(KEY_AUTO_CLOSE_TILE, false)
 
-    fun panelOpacity(context: Context) = prefs(context).getFloat(KEY_PANEL_OPACITY, 0.92f)
-    fun blurRadius(context: Context) = prefs(context).getFloat(KEY_BLUR_RADIUS, 24f)
+    fun panelOpacity(context: Context) = prefs(context).getFloat(KEY_PANEL_OPACITY, 1f)
+    fun blurRadius(context: Context) = prefs(context).getFloat(KEY_BLUR_RADIUS, 0f)
     fun panelCornerDp(context: Context) = prefs(context).getFloat(KEY_PANEL_CORNER_DP, 32f)
     fun panelPaddingDp(context: Context) = prefs(context).getFloat(KEY_PANEL_PADDING_DP, 18f)
     fun tileCornerDp(context: Context) = prefs(context).getFloat(KEY_TILE_CORNER_DP, 24f)

@@ -20,14 +20,13 @@ Relevant controls to support:
 - Handle blacklist, once Pixel Shade has a reliable foreground-app/package observation path.
 - Full-length handle visual mode, if exposed as an actual rendered-handle option rather than a dead switch.
 
-Gesture semantics from the supplied reference are explicit:
+Gesture semantics follow the current Pixel Shade interaction model, which supersedes the older reference mapping:
 
 - top handle -> swipe downward to open;
-- bottom handle -> swipe upward to open;
-- left handle -> swipe upward to open;
-- right handle -> swipe upward to open.
+- left, right and lower-left side bypasses -> sweep downward to open;
+- bottom handle -> choose a double tap or a downward swipe; a single tap must do nothing.
 
-Existing Pixel Shade geometry maps directly to most of this model; RC81 adds the missing bottom-trigger and environment-rule configuration keys. Do not substitute inward horizontal swipes for the side-handle upward gesture.
+These lower-edge routes deliberately avoid fighting Android navigation gestures and keep an alternate path available when an OEM status bar intercepts the primary pull-down. Do not substitute inward horizontal side swipes.
 
 ## Layout
 
