@@ -8,6 +8,7 @@ import android.graphics.drawable.ColorDrawable
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
+import android.util.Log
 import android.view.Window
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
@@ -17,11 +18,16 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -29,18 +35,33 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import kotlinx.coroutines.launch
+import java.text.DateFormat
+import java.util.Date
 import kotlin.math.roundToInt
 
 class PixelShadePanelV2Activity : ComponentActivity() {
+    private lateinit var insetsController: WindowInsetsControllerCompat
+
+    companion object {
+        /** Used only by the editor preview; trigger gestures always begin at notifications. */
+        const val EXTRA_START_EXPANDED = "com.crimson.pixelshade.extra.START_EXPANDED"
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         requestWindowFeature(Window.FEATURE_NO_TITLE)
@@ -49,6 +70,10 @@ class PixelShadePanelV2Activity : ComponentActivity() {
         window.statusBarColor = android.graphics.Color.TRANSPARENT
         window.navigationBarColor = android.graphics.Color.TRANSPARENT
         window.setBackgroundDrawable(ColorDrawable(android.graphics.Color.TRANSPARENT))
+        insetsController = WindowCompat.getInsetsController(window, window.decorView).apply {
+            systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+        }
+        hidePanelStatusBar()
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             runCatching {
                 window.addFlags(WindowManager.LayoutParams.FLAG_BLUR_BEHIND)
@@ -63,30 +88,83 @@ class PixelShadePanelV2Activity : ComponentActivity() {
                 if (dark) dynamicDarkColorScheme(this) else dynamicLightColorScheme(this)
             } else if (dark) darkColorScheme() else lightColorScheme()
             MaterialTheme(colorScheme = scheme) {
-                Pixel17RuntimeShade(onFinish = { finish() })
+                Pixel17RuntimeShade(
+                    startState = if (intent.getBooleanExtra(EXTRA_START_EXPANDED, false)) {
+                        ShadeState.QUICK_SETTINGS
+                    } else {
+                        ShadeState.NOTIFICATIONS
+                    },
+                    onFinish = { finishAndRemoveTask() }
+                )
             }
+        }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        hidePanelStatusBar()
+    }
+
+    override fun onPause() {
+        restoreSystemStatusBar()
+        Log.i("PixelShade.Panel", "panel paused; status bar restored for the next foreground surface")
+        super.onPause()
+    }
+
+    override fun onDestroy() {
+        restoreSystemStatusBar()
+        super.onDestroy()
+    }
+
+    private fun hidePanelStatusBar() {
+        insetsController.hide(WindowInsetsCompat.Type.statusBars())
+        Log.i("PixelShade.Panel", "panel visible; Android status bar hidden for this window")
+    }
+
+    private fun restoreSystemStatusBar() {
+        if (::insetsController.isInitialized) {
+            insetsController.show(WindowInsetsCompat.Type.statusBars())
         }
     }
 }
 
-private data class RuntimeTile(
+internal data class RuntimeTile(
     val id: String,
     val label: String,
     val icon: ImageVector,
-    val compact: Boolean,
-    val active: Boolean
+    val compact: Boolean = false,
+    val active: Boolean,
+    val secondaryLabel: String = "",
+    val strongActive: Boolean = false
 )
 
 @Composable
-private fun Pixel17RuntimeShade(onFinish: () -> Unit) {
+private fun Pixel17RuntimeShade(
+    startState: ShadeState,
+    onFinish: () -> Unit
+) {
     val context = LocalContext.current
     val palette = rememberPixelShadePalette(context, MaterialTheme.colorScheme)
     val opacity = PixelShadeConfig.panelOpacity(context)
+    val panelPadding = PixelShadeConfig.panelPaddingDp(context).coerceIn(8f, 40f).dp
+    val cutoutTop = WindowInsets.displayCutout.asPaddingValues().calculateTopPadding()
     val customTiles = remember { PixelShadeTileStore.load(context) }
     val notifications = PixelShadeNotificationStore.items
     val systemStatus = rememberRuntimeSystemStatus(context)
     val openDurationMs = remember { PixelShadeConfig.openDurationMs(context).coerceIn(80, 1_000) }
     val closeDurationMs = remember { PixelShadeConfig.closeDurationMs(context).coerceIn(80, 1_000) }
+    val showHeader = PixelShadeConfig.showPanelHeader(context)
+    val showSystemIcons = PixelShadeConfig.showSystemIcons(context)
+    val showFooter = PixelShadeConfig.showPanelFooter(context)
+    val hideTileText = PixelShadeConfig.hideTileText(context)
+    val tileHeight = PixelShadeConfig.tileHeightDp(context).coerceIn(44f, 96f).dp
+
+    val headerText = PixelShadeThemeEngine.resolvedColor(context, PixelShadeThemeEngine.KEY_HEADER_TEXT, palette.primaryText)
+    val tileText = PixelShadeThemeEngine.resolvedColor(context, PixelShadeThemeEngine.KEY_TILE_TEXT, palette.primaryText)
+    val notificationBackground = PixelShadeThemeEngine.resolvedColor(context, PixelShadeThemeEngine.KEY_NOTIFICATION_BACKGROUND, palette.inactiveTile)
+    val footerBackground = PixelShadeThemeEngine.resolvedColor(context, PixelShadeThemeEngine.KEY_FOOTER_BACKGROUND, Color.Transparent)
+    val footerText = PixelShadeThemeEngine.resolvedColor(context, PixelShadeThemeEngine.KEY_FOOTER_TEXT, palette.primaryText)
+    val handleColor = PixelShadeThemeEngine.resolvedColor(context, PixelShadeThemeEngine.KEY_HANDLE, palette.secondaryText)
 
     var brightness by remember {
         mutableFloatStateOf(Settings.System.getInt(context.contentResolver, Settings.System.SCREEN_BRIGHTNESS, 128) / 255f)
@@ -98,10 +176,13 @@ private fun Pixel17RuntimeShade(onFinish: () -> Unit) {
     var dndOn by remember { mutableStateOf(SystemActionController.dndEnabled(context)) }
     var rotationOn by remember { mutableStateOf(SystemActionController.rotationEnabled(context)) }
     var closing by remember { mutableStateOf(false) }
-
-    val cameraPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-        if (granted) torchOn = SystemActionController.toggleFlashlight(context)
-    }
+    var shadeState by remember { mutableStateOf(startState) }
+    val qsExpansion by animateFloatAsState(
+        targetValue = shadeState.quickSettingsExpansion(),
+        animationSpec = tween(durationMillis = 260, easing = FastOutSlowInEasing)
+    )
+    val dragThresholdPx = with(LocalDensity.current) { 42.dp.toPx() }
+    var shadeDragDistance by remember { mutableFloatStateOf(0f) }
 
     val progress = remember { androidx.compose.animation.core.Animatable(0f) }
     val scope = rememberCoroutineScope()
@@ -109,16 +190,31 @@ private fun Pixel17RuntimeShade(onFinish: () -> Unit) {
     fun closeShade() {
         if (closing) return
         closing = true
+        shadeState = ShadeState.CLOSED
+        Log.i("PixelShade.Panel", "shade state=closed")
         scope.launch {
-            progress.animateTo(
-                0f,
-                tween(durationMillis = closeDurationMs, easing = FastOutSlowInEasing)
-            )
+            progress.animateTo(0f, tween(durationMillis = closeDurationMs, easing = FastOutSlowInEasing))
             onFinish()
         }
     }
 
-    BackHandler(enabled = !closing) { closeShade() }
+    fun collapseQuickSettings() {
+        if (shadeState == ShadeState.QUICK_SETTINGS) {
+            shadeState = ShadeState.NOTIFICATIONS
+            Log.i("PixelShade.Panel", "shade state=notifications")
+        }
+    }
+
+    val cameraPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (granted) {
+            torchOn = SystemActionController.toggleFlashlight(context)
+            if (PixelShadeConfig.autoCloseTile(context)) closeShade()
+        }
+    }
+
+    BackHandler(enabled = !closing) {
+        if (shadeState == ShadeState.QUICK_SETTINGS) collapseQuickSettings() else closeShade()
+    }
 
     fun launchAndClose(intent: Intent) {
         val launched = runCatching {
@@ -128,6 +224,25 @@ private fun Pixel17RuntimeShade(onFinish: () -> Unit) {
         if (launched) onFinish()
     }
 
+    val shadeStateGestureModifier = Modifier.pointerInput(shadeState, closing) {
+        detectVerticalDragGestures(
+            onDragStart = { shadeDragDistance = 0f },
+            onVerticalDrag = { _, dragAmount -> shadeDragDistance += dragAmount },
+            onDragEnd = {
+                when {
+                    shadeDragDistance >= dragThresholdPx && shadeState == ShadeState.NOTIFICATIONS -> {
+                        shadeState = ShadeState.QUICK_SETTINGS
+                        Log.i("PixelShade.Panel", "shade state=quick_settings")
+                    }
+                    shadeDragDistance <= -dragThresholdPx && shadeState == ShadeState.QUICK_SETTINGS -> collapseQuickSettings()
+                    shadeDragDistance <= -dragThresholdPx && shadeState == ShadeState.NOTIFICATIONS -> closeShade()
+                }
+                shadeDragDistance = 0f
+            },
+            onDragCancel = { shadeDragDistance = 0f }
+        )
+    }
+
     LaunchedEffect(Unit) {
         wifiOn = SystemActionController.wifiEnabled(context)
         mobileOn = SystemActionController.mobileDataEnabled(context)
@@ -135,22 +250,20 @@ private fun Pixel17RuntimeShade(onFinish: () -> Unit) {
         dndOn = SystemActionController.dndEnabled(context)
         rotationOn = SystemActionController.rotationEnabled(context)
         progress.snapTo(0f)
-        progress.animateTo(
-            1f,
-            tween(durationMillis = openDurationMs, easing = FastOutSlowInEasing)
-        )
+        progress.animateTo(1f, tween(durationMillis = openDurationMs, easing = FastOutSlowInEasing))
     }
 
     val tiles = listOf(
-        RuntimeTile("wifi", "Wi-Fi", Icons.Default.Wifi, compact = true, active = wifiOn),
-        RuntimeTile("mobile", "Mobile data", Icons.Default.SwapVert, compact = true, active = mobileOn),
-        RuntimeTile("bluetooth", "Bluetooth", Icons.Default.Bluetooth, compact = false, active = bluetoothOn),
-        RuntimeTile("flashlight", "Flashlight", Icons.Default.FlashlightOn, compact = false, active = torchOn),
-        RuntimeTile("dnd", "Modes", Icons.Default.DoNotDisturbOn, compact = false, active = dndOn),
-        RuntimeTile("rotation", "Rotation", Icons.Default.ScreenRotation, compact = false, active = rotationOn)
+        RuntimeTile("wifi", "Wi-Fi", Icons.Default.Wifi, compact = true, active = wifiOn, secondaryLabel = if (wifiOn) "Connected" else "Off"),
+        RuntimeTile("bluetooth", "Bluetooth", Icons.Default.Bluetooth, compact = true, active = bluetoothOn, secondaryLabel = if (bluetoothOn) "On" else "Off"),
+        RuntimeTile("flashlight", "Flashlight", Icons.Default.FlashlightOn, compact = true, active = torchOn, secondaryLabel = if (torchOn) "On" else "Off"),
+        RuntimeTile("dnd", "Modes", Icons.Default.DoNotDisturbOn, compact = true, active = dndOn, secondaryLabel = if (dndOn) "On" else "Off", strongActive = true),
+        RuntimeTile("mobile", "Mobile data", Icons.Default.SwapVert, active = mobileOn, secondaryLabel = if (mobileOn) "On" else "Off"),
+        RuntimeTile("rotation", "Rotation", Icons.Default.ScreenRotation, active = rotationOn, secondaryLabel = if (rotationOn) "Auto-rotate" else "Locked")
     )
 
     fun activate(tile: RuntimeTile) {
+        var canAutoClose = true
         when (tile.id) {
             "wifi" -> SystemActionController.toggleWifi(context) { wifiOn = it }
             "mobile" -> SystemActionController.toggleMobileData(context) { mobileOn = it }
@@ -159,16 +272,30 @@ private fun Pixel17RuntimeShade(onFinish: () -> Unit) {
                 if (context.checkSelfPermission(Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
                     torchOn = SystemActionController.toggleFlashlight(context)
                 } else {
+                    canAutoClose = false
                     cameraPermission.launch(Manifest.permission.CAMERA)
                 }
             }
             "dnd" -> dndOn = SystemActionController.toggleDnd(context)
             "rotation" -> rotationOn = SystemActionController.toggleRotation(context)
         }
+        if (canAutoClose && PixelShadeConfig.autoCloseTile(context)) closeShade()
     }
 
-    val mediaNotification = notifications.firstOrNull { it.isMedia }
-    val regularNotifications = notifications.filterNot { it.key == mediaNotification?.key }
+    val showNotifications = PixelShadeConfig.showNotifications(context)
+    val onlyMedia = PixelShadeConfig.onlyMediaNotifications(context)
+    val hidePersistent = PixelShadeConfig.hidePersistentNotifications(context)
+    val visibleNotifications = if (!showNotifications) {
+        emptyList()
+    } else if (onlyMedia) {
+        notifications.filter { it.isMedia }
+    } else {
+        notifications.filterNot { hidePersistent && it.ongoing }
+    }
+    val mediaNotification = visibleNotifications.firstOrNull { it.isMedia }
+    val regularNotifications = visibleNotifications.filterNot { it.key == mediaNotification?.key }
+    val removeNotificationSpacing = PixelShadeConfig.removeNotificationSpacing(context)
+    val autoExpandNotifications = PixelShadeConfig.autoExpandNotifications(context)
 
     Surface(
         modifier = Modifier.fillMaxSize().graphicsLayer {
@@ -179,152 +306,347 @@ private fun Pixel17RuntimeShade(onFinish: () -> Unit) {
     ) {
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(start = 18.dp, end = 18.dp, top = 34.dp, bottom = 30.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
+            contentPadding = PaddingValues(
+                start = panelPadding,
+                end = panelPadding,
+                top = maxOf(16.dp, cutoutTop + 8.dp),
+                bottom = if (showFooter && shadeState == ShadeState.QUICK_SETTINGS) 86.dp else 30.dp
+            ),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            item {
-                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
-                    Column(Modifier.weight(1f)) {
-                        Text(systemStatus.time, style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.SemiBold, color = palette.primaryText)
-                        Text(systemStatus.date, style = MaterialTheme.typography.bodyMedium, color = palette.secondaryText)
-                    }
-                    Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                        Text(systemStatus.connectionLabel, style = MaterialTheme.typography.labelMedium, color = palette.primaryText)
-                        Row(horizontalArrangement = Arrangement.spacedBy(5.dp), verticalAlignment = Alignment.CenterVertically) {
-                            when (systemStatus.transport) {
-                                RuntimeTransport.WIFI -> Icon(Icons.Default.Wifi, "Wi-Fi", Modifier.size(15.dp), tint = palette.primaryText)
-                                RuntimeTransport.CELLULAR -> Icon(Icons.Default.SignalCellularAlt, "Cellular", Modifier.size(15.dp), tint = palette.primaryText)
-                                else -> Unit
-                            }
-                            if (systemStatus.charging) {
-                                Icon(Icons.Default.Bolt, "Charging", Modifier.size(14.dp), tint = palette.primaryText)
-                            }
-                            Icon(Icons.Default.BatteryFull, "Battery", Modifier.size(15.dp), tint = palette.primaryText)
+            if (showHeader) {
+                item {
+                    Row(Modifier.fillMaxWidth().then(shadeStateGestureModifier), verticalAlignment = Alignment.Top) {
+                        Column(Modifier.weight(1f)) {
                             Text(
-                                if (systemStatus.batteryPercent >= 0) "${systemStatus.batteryPercent}%" else "—",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = palette.primaryText
+                                systemStatus.time,
+                                style = if (qsExpansion < .5f) MaterialTheme.typography.headlineSmall else MaterialTheme.typography.displaySmall,
+                                fontWeight = FontWeight.Medium,
+                                color = headerText
                             )
+                            Text(
+                                systemStatus.date,
+                                style = if (qsExpansion < .5f) MaterialTheme.typography.bodyMedium else MaterialTheme.typography.bodyLarge,
+                                color = palette.secondaryText
+                            )
+                        }
+                        if (showSystemIcons) {
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                when (systemStatus.transport) {
+                                    RuntimeTransport.WIFI -> Icon(Icons.Default.Wifi, "Wi-Fi", Modifier.size(18.dp), tint = headerText)
+                                    RuntimeTransport.CELLULAR -> Icon(Icons.Default.SignalCellularAlt, "Cellular", Modifier.size(18.dp), tint = headerText)
+                                    else -> Unit
+                                }
+                                if (systemStatus.charging) Icon(Icons.Default.Bolt, "Charging", Modifier.size(17.dp), tint = headerText)
+                                Icon(Icons.Default.BatteryFull, "Battery", Modifier.size(18.dp), tint = headerText)
+                                if (systemStatus.batteryPercent >= 0) {
+                                    Text("${systemStatus.batteryPercent}", style = MaterialTheme.typography.labelMedium, color = headerText)
+                                }
+                                IconButton(
+                                    onClick = { launchAndClose(Intent(context, MainActivity::class.java)) },
+                                    modifier = Modifier.size(36.dp)
+                                ) {
+                                    Icon(Icons.Default.Settings, "Pixel Shade settings", Modifier.size(21.dp), tint = headerText)
+                                }
+                            }
                         }
                     }
                 }
             }
 
+            if (qsExpansion > .001f) {
+                item {
+                    Box(
+                        Modifier.fillMaxWidth()
+                            .height(56.dp * qsExpansion.coerceAtLeast(.01f))
+                            .graphicsLayer { alpha = qsExpansion }
+                    ) {
+                        RuntimeBrightness(
+                            value = brightness,
+                            palette = palette,
+                            onValueChange = {
+                                brightness = it.coerceIn(.01f, 1f)
+                                if (Settings.System.canWrite(context)) {
+                                    Settings.System.putInt(context.contentResolver, Settings.System.SCREEN_BRIGHTNESS, (brightness * 255).roundToInt().coerceIn(1, 255))
+                                }
+                            },
+                            onSettings = { launchAndClose(Intent(Settings.ACTION_SETTINGS)) }
+                        )
+                    }
+                }
+            }
+
             item {
-                RuntimeBrightness(
-                    value = brightness,
+                RuntimeQuickSettingsMorph(
+                    tiles = tiles,
                     palette = palette,
-                    onValueChange = {
-                        brightness = it.coerceIn(.01f, 1f)
-                        if (Settings.System.canWrite(context)) {
-                            Settings.System.putInt(
-                                context.contentResolver,
-                                Settings.System.SCREEN_BRIGHTNESS,
-                                (brightness * 255).roundToInt().coerceIn(1, 255)
-                            )
-                        }
-                    },
-                    onSettings = { launchAndClose(Intent(Settings.ACTION_SETTINGS)) }
+                    expansion = qsExpansion,
+                    tileHeight = tileHeight,
+                    hideText = hideTileText,
+                    textColor = tileText,
+                    onClick = { activate(it) }
                 )
             }
 
-            item {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        RuntimeCompactTile(tiles[0], palette, Modifier.weight(1f)) { activate(tiles[0]) }
-                        RuntimeCompactTile(tiles[1], palette, Modifier.weight(1f)) { activate(tiles[1]) }
-                        RuntimeWideTile(tiles[2], palette, Modifier.weight(2f)) { activate(tiles[2]) }
-                    }
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        RuntimeWideTile(tiles[3], palette, Modifier.weight(1f)) { activate(tiles[3]) }
-                        RuntimeWideTile(tiles[4], palette, Modifier.weight(1f)) { activate(tiles[4]) }
-                    }
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        RuntimeWideTile(tiles[5], palette, Modifier.weight(1f)) { activate(tiles[5]) }
-                        Spacer(Modifier.weight(1f))
+            if (shadeState == ShadeState.QUICK_SETTINGS) {
+                item {
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        Row(Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                            repeat(3) { index ->
+                                Surface(
+                                    Modifier.size(if (index == 0) 7.dp else 5.dp),
+                                    shape = CircleShape,
+                                    color = if (index == 0) palette.primaryText else palette.secondaryText.copy(alpha = .45f)
+                                ) {}
+                            }
+                        }
+                        IconButton(onClick = { launchAndClose(Intent(context, MainActivity::class.java)) }) {
+                            Icon(Icons.Default.Edit, "Edit Quick Settings", tint = footerText)
+                        }
                     }
                 }
-            }
 
-            if (customTiles.isNotEmpty()) {
-                item { Text("Custom", style = MaterialTheme.typography.labelLarge, color = palette.secondaryText) }
-                runtimeCustomRows(customTiles).forEach { rowTiles ->
-                    item {
-                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            var used = 0
-                            rowTiles.forEach { tile ->
-                                val span = tile.widthUnits.coerceIn(1, 4)
-                                used += span
-                                RuntimeCustomTile(tile, palette, Modifier.weight(span.toFloat())) {
-                                    if (PixelShadeTileStore.launch(context, tile)) onFinish()
+                if (customTiles.isNotEmpty()) {
+                    item { Text("Custom", style = MaterialTheme.typography.labelLarge, color = palette.secondaryText) }
+                    runtimeCustomRows(customTiles).forEach { rowTiles ->
+                        item {
+                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                var used = 0
+                                rowTiles.forEach { tile ->
+                                    val span = tile.widthUnits.coerceIn(1, 4)
+                                    used += span
+                                    RuntimeCustomTile(tile, palette, Modifier.weight(span.toFloat()), tileHeight, hideTileText, tileText) {
+                                        if (PixelShadeTileStore.launch(context, tile)) onFinish()
+                                    }
                                 }
+                                if (used < 4) Spacer(Modifier.weight((4 - used).toFloat()))
                             }
-                            if (used < 4) Spacer(Modifier.weight((4 - used).toFloat()))
                         }
                     }
                 }
             }
 
-            if (mediaNotification != null) {
-                item { RuntimeMediaCard(mediaNotification, palette, onFinish) }
+            if (shadeState == ShadeState.NOTIFICATIONS && mediaNotification != null) {
+                item { RuntimeMediaCard(mediaNotification, palette, notificationBackground, onFinish) }
             }
 
-            if (regularNotifications.isNotEmpty()) {
+            if (shadeState == ShadeState.NOTIFICATIONS && showNotifications && regularNotifications.isNotEmpty()) {
                 item {
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                         Text("Notifications", style = MaterialTheme.typography.titleSmall, color = palette.secondaryText, modifier = Modifier.weight(1f))
                         if (regularNotifications.any { it.clearable }) {
-                            TextButton(onClick = { PixelShadeNotificationStore.clearAll() }) { Text("Clear all") }
+                            TextButton(onClick = {
+                                PixelShadeNotificationStore.clearAll()
+                                if (PixelShadeConfig.autoCloseAfterClear(context)) closeShade()
+                            }) { Text("Clear all") }
                         }
                     }
                 }
-                items(regularNotifications.size, key = { regularNotifications[it].key }) { index ->
-                    RuntimeNotificationCard(regularNotifications[index], palette, onFinish)
+                if (removeNotificationSpacing) {
+                    item {
+                        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                            regularNotifications.forEach { item ->
+                                RuntimeNotificationCard(item, palette, notificationBackground, autoExpandNotifications, onFinish)
+                            }
+                        }
+                    }
+                } else {
+                    items(regularNotifications.size, key = { regularNotifications[it].key }) { index ->
+                        RuntimeNotificationCard(regularNotifications[index], palette, notificationBackground, autoExpandNotifications, onFinish)
+                    }
                 }
-            } else if (mediaNotification == null) {
+            } else if (shadeState == ShadeState.NOTIFICATIONS && showNotifications && mediaNotification == null) {
                 item {
-                    Column(
-                        Modifier.fillMaxWidth().padding(vertical = 30.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
+                    Column(Modifier.fillMaxWidth().padding(vertical = 30.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Icon(Icons.Default.EmojiEvents, null, Modifier.size(28.dp), tint = palette.secondaryText)
                         Text("You're all caught up", color = palette.secondaryText)
                     }
                 }
+            } else if (shadeState == ShadeState.QUICK_SETTINGS && showNotifications && regularNotifications.isNotEmpty()) {
+                item {
+                    Text(
+                        "${regularNotifications.size} notification${if (regularNotifications.size == 1) "" else "s"}",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = palette.secondaryText
+                    )
+                }
             }
 
-            item {
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End, verticalAlignment = Alignment.CenterVertically) {
-                    IconButton(onClick = {
-                        launchAndClose(Intent(context, MainActivity::class.java))
-                    }) { Icon(Icons.Default.Edit, "Edit", tint = palette.primaryText) }
-                    IconButton(
-                        enabled = PixelShadeAccessibilityService.isConnected(),
-                        onClick = {
-                            if (PixelShadeAccessibilityService.requestPowerDialog()) onFinish()
+            if (showFooter && shadeState == ShadeState.QUICK_SETTINGS) {
+                item {
+                    Surface(Modifier.fillMaxWidth(), shape = RoundedCornerShape(24.dp), color = footerBackground) {
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End, verticalAlignment = Alignment.CenterVertically) {
+                            IconButton(onClick = { launchAndClose(Intent(context, MainActivity::class.java)) }) {
+                                Icon(Icons.Default.Settings, "Pixel Shade settings", tint = footerText)
+                            }
+                            IconButton(enabled = PixelShadeAccessibilityService.isConnected(), onClick = {
+                                if (PixelShadeAccessibilityService.requestPowerDialog()) onFinish()
+                            }) {
+                                Icon(Icons.Default.PowerSettingsNew, "Power", tint = footerText)
+                            }
                         }
-                    ) { Icon(Icons.Default.PowerSettingsNew, "Power", tint = palette.primaryText) }
+                    }
                 }
             }
 
             item {
-                RuntimeDismissHandle(palette = palette, onClose = { closeShade() })
+                RuntimeDismissHandle(handleColor = handleColor) {
+                    if (shadeState == ShadeState.QUICK_SETTINGS) collapseQuickSettings() else closeShade()
+                }
             }
         }
     }
 }
 
 @Composable
-private fun RuntimeDismissHandle(palette: PixelShadePalette, onClose: () -> Unit) {
+private fun RuntimeQuickSettingsMorph(
+    tiles: List<RuntimeTile>,
+    palette: PixelShadePalette,
+    expansion: Float,
+    tileHeight: Dp,
+    hideText: Boolean,
+    textColor: Color,
+    onClick: (RuntimeTile) -> Unit
+) {
+    val context = LocalContext.current
+    val progress = expansion.coerceIn(0f, 1f)
+    val compactSize = 56.dp
+    val compactHeight = 56.dp
+    val compactCorner = 16.dp
+    val gap = 8.dp
+    val expandedHeight = tileHeight.coerceIn(44.dp, 96.dp)
+    val expandedCorner = PixelShadeConfig.tileCornerDp(context).coerceIn(20f, 24f).dp
+    val brushes = pixelShadeTileBrushes(context, palette.activeTile, palette.inactiveTile)
+
+    BoxWithConstraints(
+        Modifier.fillMaxWidth().height(interpolateShadeDp(compactHeight, expandedHeight * 3 + gap * 2, progress))
+    ) {
+        val compactCellWidth = (maxWidth.value / 4f).dp
+        val expandedWidth = ((maxWidth.value - gap.value) / 2f).dp
+        tiles.take(6).forEachIndexed { index, tile ->
+            val tileProgress = if (index < 4) progress else ((progress - .42f) / .58f).coerceIn(0f, 1f)
+            val row = index / 2
+            val column = index % 2
+            val expandedX = if (column == 0) 0.dp else expandedWidth + gap
+            val expandedY = (expandedHeight + gap) * row
+            val compactX = if (index < 4) {
+                compactCellWidth * index + (compactCellWidth - compactSize) / 2f
+            } else {
+                expandedX
+            }
+            val compactY = if (index < 4) 0.dp else expandedY
+            val width = interpolateShadeDp(compactSize, expandedWidth, tileProgress)
+            val height = interpolateShadeDp(compactSize, expandedHeight, tileProgress)
+            val shape = RoundedCornerShape(interpolateShadeDp(compactCorner, expandedCorner, tileProgress))
+            val foreground = if (tile.active) palette.activeIcon else palette.inactiveIcon
+            val brush = if (tile.active) brushes.active else brushes.inactive
+
+            Box(
+                Modifier.offset(
+                    x = interpolateShadeDp(compactX, expandedX, tileProgress),
+                    y = interpolateShadeDp(compactY, expandedY, tileProgress)
+                ).width(width).height(height)
+                    .graphicsLayer { alpha = if (index < 4) 1f else tileProgress }
+            ) {
+                Box(
+                    Modifier.fillMaxSize().clip(shape).background(brush).clickable { onClick(tile) }
+                ) {
+                    val iconX = interpolateShadeDp(((width.value - 24f) / 2f).dp, 16.dp, tileProgress)
+                    Icon(
+                        tile.icon,
+                        tile.label,
+                        Modifier.offset(x = iconX, y = (height - 24.dp) / 2f).size(24.dp),
+                        tint = foreground
+                    )
+                    if (!hideText) {
+                        Column(
+                            Modifier.align(Alignment.CenterStart).padding(start = 52.dp, end = 8.dp)
+                                .graphicsLayer { alpha = tileProgress },
+                            verticalArrangement = Arrangement.spacedBy(1.dp)
+                        ) {
+                            Text(tile.label, style = MaterialTheme.typography.labelLarge, color = if (tile.active) foreground else textColor, maxLines = 1)
+                            if (tile.secondaryLabel.isNotBlank()) {
+                                Text(tile.secondaryLabel, style = MaterialTheme.typography.labelSmall, color = if (tile.active) foreground.copy(alpha = .8f) else palette.secondaryText, maxLines = 1)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+internal fun Pixel17RuntimeShadePreview(modifier: Modifier = Modifier) {
+    val context = LocalContext.current
+    val palette = rememberPixelShadePalette(context, MaterialTheme.colorScheme)
+    val status = rememberRuntimeSystemStatus(context)
+    val headerText = PixelShadeThemeEngine.resolvedColor(context, PixelShadeThemeEngine.KEY_HEADER_TEXT, palette.primaryText)
+    val tileText = PixelShadeThemeEngine.resolvedColor(context, PixelShadeThemeEngine.KEY_TILE_TEXT, palette.primaryText)
+    val tiles = listOf(
+        RuntimeTile("wifi", "Wi-Fi", Icons.Default.Wifi, active = true, secondaryLabel = "Connected"),
+        RuntimeTile("bluetooth", "Bluetooth", Icons.Default.Bluetooth, active = false, secondaryLabel = "Off"),
+        RuntimeTile("flashlight", "Flashlight", Icons.Default.FlashlightOn, active = false, secondaryLabel = "Off"),
+        RuntimeTile("dnd", "Modes", Icons.Default.DoNotDisturbOn, active = false, secondaryLabel = "Off"),
+        RuntimeTile("mobile", "Mobile data", Icons.Default.SwapVert, active = true, secondaryLabel = "On"),
+        RuntimeTile("rotation", "Rotation", Icons.Default.ScreenRotation, active = true, secondaryLabel = "Auto-rotate")
+    )
+
+    Surface(
+        modifier = modifier.clip(RoundedCornerShape(28.dp)),
+        color = palette.panel
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text(status.time, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Medium, color = headerText)
+                    Text(status.date, style = MaterialTheme.typography.bodySmall, color = palette.secondaryText)
+                }
+                Icon(Icons.Default.Wifi, "Wi-Fi", Modifier.size(18.dp), tint = headerText)
+                Spacer(Modifier.width(8.dp))
+                Icon(Icons.Default.BatteryFull, "Battery", Modifier.size(18.dp), tint = headerText)
+                if (status.batteryPercent >= 0) {
+                    Spacer(Modifier.width(4.dp))
+                    Text("${status.batteryPercent}", style = MaterialTheme.typography.labelMedium, color = headerText)
+                }
+            }
+            RuntimeBrightness(
+                value = .72f,
+                palette = palette,
+                onValueChange = {},
+                onSettings = {}
+            )
+            RuntimeQuickSettingsMorph(
+                tiles = tiles,
+                palette = palette,
+                expansion = 1f,
+                tileHeight = PixelShadeConfig.tileHeightDp(context).coerceIn(44f, 96f).dp,
+                hideText = PixelShadeConfig.hideTileText(context),
+                textColor = tileText,
+                onClick = {}
+            )
+        }
+    }
+}
+
+private fun interpolateShadeDp(start: Dp, end: Dp, progress: Float): Dp =
+    (start.value + (end.value - start.value) * progress.coerceIn(0f, 1f)).dp
+
+
+@Composable
+private fun RuntimeDismissHandle(handleColor: Color, onClose: () -> Unit) {
     val density = LocalDensity.current
     val thresholdPx = with(density) { 36.dp.toPx() }
     var dragDistance by remember { mutableFloatStateOf(0f) }
 
     Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(38.dp)
+        modifier = Modifier.fillMaxWidth().height(38.dp)
             .pointerInput(thresholdPx) {
                 detectVerticalDragGestures(
                     onDragStart = { dragDistance = 0f },
@@ -339,94 +661,125 @@ private fun RuntimeDismissHandle(palette: PixelShadePalette, onClose: () -> Unit
             .clickable(onClick = onClose),
         contentAlignment = Alignment.Center
     ) {
-        Surface(
-            modifier = Modifier.width(44.dp).height(4.dp),
-            shape = RoundedCornerShape(2.dp),
-            color = palette.secondaryText.copy(alpha = .45f)
-        ) {}
+        Surface(Modifier.width(44.dp).height(4.dp), shape = RoundedCornerShape(2.dp), color = handleColor.copy(alpha = .45f)) {}
     }
 }
 
 @Composable
-private fun RuntimeBrightness(
-    value: Float,
-    palette: PixelShadePalette,
-    onValueChange: (Float) -> Unit,
-    onSettings: () -> Unit
-) {
-    Row(Modifier.fillMaxWidth().height(48.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        Surface(Modifier.weight(1f).fillMaxHeight(), shape = RoundedCornerShape(14.dp), color = palette.brightnessTrack) {
-            Slider(
-                value = value.coerceIn(.01f, 1f),
-                onValueChange = onValueChange,
-                colors = SliderDefaults.colors(
-                    thumbColor = palette.brightnessFill,
-                    activeTrackColor = palette.brightnessFill,
-                    inactiveTrackColor = palette.brightnessTrack
-                ),
-                modifier = Modifier.padding(horizontal = 8.dp)
-            )
-        }
-        Surface(
-            Modifier.width(54.dp).fillMaxHeight().clickable(onClick = onSettings),
-            shape = RoundedCornerShape(14.dp),
-            color = palette.inactiveTile
+private fun RuntimeBrightness(value: Float, palette: PixelShadePalette, onValueChange: (Float) -> Unit, onSettings: () -> Unit) {
+    val context = LocalContext.current
+    val track = palette.brightnessTrack
+    val progressColor = PixelShadeThemeEngine.resolvedColor(context, PixelShadeThemeEngine.KEY_SLIDER_PROGRESS, palette.brightnessFill)
+    val thumbColor = PixelShadeThemeEngine.resolvedColor(context, PixelShadeThemeEngine.KEY_SLIDER_THUMB, palette.brightnessFill)
+    val iconColor = PixelShadeThemeEngine.resolvedColor(context, PixelShadeThemeEngine.KEY_SLIDER_ICON, palette.activeIcon)
+    val fraction = value.coerceIn(.01f, 1f)
+    val shape = RoundedCornerShape(28.dp)
+
+    Row(Modifier.fillMaxWidth().height(56.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        BoxWithConstraints(
+            modifier = Modifier.weight(1f).fillMaxHeight().clip(shape).background(track)
+                .pointerInput(Unit) {
+                    detectTapGestures { offset ->
+                        if (size.width > 0) onValueChange((offset.x / size.width.toFloat()).coerceIn(.01f, 1f))
+                    }
+                }
+                .pointerInput(Unit) {
+                    detectHorizontalDragGestures(
+                        onDragStart = { offset ->
+                            if (size.width > 0) onValueChange((offset.x / size.width.toFloat()).coerceIn(.01f, 1f))
+                        },
+                        onHorizontalDrag = { change, _ ->
+                            if (size.width > 0) onValueChange((change.position.x / size.width.toFloat()).coerceIn(.01f, 1f))
+                            change.consume()
+                        }
+                    )
+                }
         ) {
-            Box(contentAlignment = Alignment.Center) {
-                Icon(Icons.Default.Settings, "Settings", tint = palette.inactiveIcon)
+            Box(Modifier.fillMaxHeight().fillMaxWidth(fraction).background(progressColor))
+            Box(
+                Modifier.align(Alignment.CenterStart).padding(start = 14.dp).size(26.dp)
+                    .background(thumbColor.copy(alpha = .82f), CircleShape),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(Icons.Default.Brightness6, "Brightness", Modifier.size(16.dp), tint = iconColor)
+            }
+        }
+        Surface(Modifier.width(52.dp).fillMaxHeight().clickable(onClick = onSettings), shape = RoundedCornerShape(20.dp), color = palette.inactiveTile) {
+            Box(contentAlignment = Alignment.Center) { Icon(Icons.Default.Settings, "Settings", tint = palette.inactiveIcon) }
+        }
+    }
+}
+
+@Composable
+private fun RuntimeCompactTile(
+    tile: RuntimeTile,
+    palette: PixelShadePalette,
+    modifier: Modifier,
+    height: androidx.compose.ui.unit.Dp,
+    onClick: () -> Unit
+) {
+    val context = LocalContext.current
+    val fg = if (tile.active) palette.activeIcon else palette.inactiveIcon
+    val shape = RoundedCornerShape(PixelShadeConfig.tileCornerDp(context).dp.coerceIn(18.dp, 28.dp))
+    val brushes = pixelShadeTileBrushes(context, palette.activeTile, palette.inactiveTile)
+    val brush = if (tile.active) brushes.active else brushes.inactive
+    Box(modifier.height(height).clip(shape).background(brush).clickable(onClick = onClick), contentAlignment = Alignment.Center) {
+        Icon(tile.icon, tile.label, Modifier.size(24.dp), tint = fg)
+    }
+}
+
+@Composable
+private fun RuntimeWideTile(
+    tile: RuntimeTile,
+    palette: PixelShadePalette,
+    modifier: Modifier,
+    height: androidx.compose.ui.unit.Dp,
+    hideText: Boolean,
+    textColor: Color,
+    onClick: () -> Unit
+) {
+    val context = LocalContext.current
+    val fg = if (tile.active) palette.activeIcon else palette.inactiveIcon
+    val shape = RoundedCornerShape(PixelShadeConfig.tileCornerDp(context).dp.coerceIn(18.dp, 28.dp))
+    val brushes = pixelShadeTileBrushes(context, palette.activeTile, palette.inactiveTile)
+    val brush = if (tile.active) brushes.active else brushes.inactive
+    Box(modifier.height(height).clip(shape).background(brush).clickable(onClick = onClick)) {
+        if (hideText) {
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Icon(tile.icon, tile.label, Modifier.size(23.dp), tint = fg)
+            }
+        } else {
+            Row(Modifier.fillMaxSize().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Icon(tile.icon, null, Modifier.size(22.dp), tint = fg)
+                Text(tile.label, style = MaterialTheme.typography.labelLarge, color = if (tile.active) fg else textColor, maxLines = 1)
             }
         }
     }
 }
 
 @Composable
-private fun RuntimeCompactTile(tile: RuntimeTile, palette: PixelShadePalette, modifier: Modifier, onClick: () -> Unit) {
-    val bg = if (tile.active) palette.activeTile else palette.inactiveTile
-    val fg = if (tile.active) palette.activeIcon else palette.inactiveIcon
-    Surface(
-        modifier.aspectRatio(1f).clickable(onClick = onClick),
-        shape = RoundedCornerShape(PixelShadeConfig.tileCornerDp(LocalContext.current).dp.coerceAtMost(26.dp)),
-        color = bg
-    ) {
-        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            Icon(tile.icon, tile.label, Modifier.size(26.dp), tint = fg)
-        }
-    }
-}
-
-@Composable
-private fun RuntimeWideTile(tile: RuntimeTile, palette: PixelShadePalette, modifier: Modifier, onClick: () -> Unit) {
-    val bg = if (tile.active) palette.activeTile else palette.inactiveTile
-    val fg = if (tile.active) palette.activeIcon else palette.inactiveIcon
-    Surface(
-        modifier.height(62.dp).clickable(onClick = onClick),
-        shape = RoundedCornerShape(PixelShadeConfig.tileCornerDp(LocalContext.current).dp.coerceAtMost(28.dp)),
-        color = bg
-    ) {
-        Row(Modifier.fillMaxSize().padding(horizontal = 14.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            Icon(tile.icon, null, Modifier.size(22.dp), tint = fg)
-            Text(tile.label, style = MaterialTheme.typography.labelLarge, color = fg, maxLines = 1)
-        }
-    }
-}
-
-@Composable
-private fun RuntimeCustomTile(tile: PixelShadeTile, palette: PixelShadePalette, modifier: Modifier, onClick: () -> Unit) {
+private fun RuntimeCustomTile(
+    tile: PixelShadeTile,
+    palette: PixelShadePalette,
+    modifier: Modifier,
+    baseHeight: androidx.compose.ui.unit.Dp,
+    hideText: Boolean,
+    textColor: Color,
+    onClick: () -> Unit
+) {
     val context = LocalContext.current
     val span = tile.widthUnits.coerceIn(1, 4)
-    Surface(
-        modifier.height(if (tile.heightUnits >= 2) 126.dp else 62.dp).clickable(onClick = onClick),
-        shape = RoundedCornerShape(PixelShadeConfig.tileCornerDp(context).dp.coerceAtMost(28.dp)),
-        color = palette.inactiveTile
-    ) {
-        if (span == 1) {
+    val shape = RoundedCornerShape(PixelShadeConfig.tileCornerDp(context).dp.coerceAtMost(28.dp))
+    val brush = pixelShadeTileBrushes(context, palette.activeTile, palette.inactiveTile).inactive
+    Box(modifier.height(if (tile.heightUnits >= 2) baseHeight * 2 + 2.dp else baseHeight).clip(shape).background(brush).clickable(onClick = onClick)) {
+        if (span == 1 || hideText) {
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 RuntimeCustomArtwork(tile, palette, Modifier.size(27.dp))
             }
         } else {
             Row(Modifier.fillMaxSize().padding(horizontal = 14.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 RuntimeCustomArtwork(tile, palette, Modifier.size(27.dp))
-                Text(tile.label, style = MaterialTheme.typography.labelLarge, color = palette.primaryText, maxLines = 1)
+                Text(tile.label, style = MaterialTheme.typography.labelLarge, color = textColor, maxLines = 1)
             }
         }
     }
@@ -463,29 +816,71 @@ private fun RuntimeCustomArtwork(tile: PixelShadeTile, palette: PixelShadePalett
 }
 
 @Composable
-private fun RuntimeNotificationCard(item: ShadeNotification, palette: PixelShadePalette, onFinish: () -> Unit) {
-    val clickable = if (item.contentIntent != null) {
-        Modifier.fillMaxWidth().clickable {
-            if (PixelShadeNotificationStore.open(item)) onFinish()
-        }
+private fun RuntimeNotificationCard(item: ShadeNotification, palette: PixelShadePalette, background: Color, expanded: Boolean, onFinish: () -> Unit) {
+    val clickable = if (item.contentIntent != null) Modifier.fillMaxWidth().clickable {
+        PixelShadeNotificationStore.open(item) { onFinish() }
     } else Modifier.fillMaxWidth()
-    Surface(clickable, shape = RoundedCornerShape(22.dp), color = palette.inactiveTile) {
-        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+    val duplicateTitle = item.title.trim().equals(item.appLabel.trim(), ignoreCase = true)
+    val verticalPadding = if (item.ongoing) 8.dp else 10.dp
+    val cardShape = if (item.ongoing) 16.dp else 20.dp
+
+    Surface(clickable, shape = RoundedCornerShape(cardShape), color = background) {
+        Column(Modifier.padding(horizontal = 14.dp, vertical = verticalPadding), verticalArrangement = Arrangement.spacedBy(3.dp)) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Text(item.appLabel, style = MaterialTheme.typography.labelMedium, color = palette.secondaryText, modifier = Modifier.weight(1f))
+                RuntimeNotificationArtwork(item, palette, Modifier.size(18.dp))
+                Spacer(Modifier.width(8.dp))
+                Text(item.appLabel, style = MaterialTheme.typography.labelMedium, color = palette.secondaryText, modifier = Modifier.weight(1f), maxLines = 1)
+                Text(notificationTimestamp(item.postTime), style = MaterialTheme.typography.labelSmall, color = palette.secondaryText, maxLines = 1)
                 if (item.clearable) {
-                    IconButton(onClick = { PixelShadeNotificationStore.dismiss(item.key) }, modifier = Modifier.size(32.dp)) {
-                        Icon(Icons.Default.Close, "Dismiss", Modifier.size(18.dp), tint = palette.secondaryText)
+                    IconButton(onClick = { PixelShadeNotificationStore.dismiss(item.key) }, modifier = Modifier.size(28.dp)) {
+                        Icon(Icons.Default.Close, "Dismiss", Modifier.size(16.dp), tint = palette.secondaryText)
                     }
                 }
             }
-            Text(item.title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, color = palette.primaryText)
-            if (item.text.isNotBlank()) Text(item.text, style = MaterialTheme.typography.bodyMedium, color = palette.secondaryText)
+            if (!duplicateTitle && item.title.isNotBlank()) {
+                Text(item.title, style = if (item.ongoing) MaterialTheme.typography.bodyLarge else MaterialTheme.typography.titleMedium, fontWeight = if (item.ongoing) FontWeight.Medium else FontWeight.SemiBold, color = palette.primaryText, maxLines = if (expanded) 2 else 1)
+            }
+            if (item.text.isNotBlank()) {
+                Text(item.text, style = MaterialTheme.typography.bodyMedium, color = palette.secondaryText, maxLines = if (expanded) 6 else 1)
+            }
             if (item.actions.isNotEmpty()) {
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                     item.actions.take(3).forEach { action ->
-                        TextButton(onClick = { PixelShadeNotificationStore.runAction(action) }) {
-                            Text(action.title, maxLines = 1)
+                        TextButton(onClick = { PixelShadeNotificationStore.runAction(item, action) }) { Text(action.title, maxLines = 1) }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun RuntimeMediaCard(item: ShadeNotification, palette: PixelShadePalette, background: Color, onFinish: () -> Unit) {
+    val cardModifier = if (item.contentIntent != null) Modifier.fillMaxWidth().clickable {
+        PixelShadeNotificationStore.open(item) { onFinish() }
+    } else Modifier.fillMaxWidth()
+    Surface(cardModifier, shape = RoundedCornerShape(24.dp), color = background) {
+        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Surface(Modifier.size(56.dp), shape = RoundedCornerShape(16.dp), color = palette.inactiveTile) {
+                    Box(contentAlignment = Alignment.Center) { RuntimeNotificationArtwork(item, palette, Modifier.size(38.dp)) }
+                }
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text(item.appLabel, style = MaterialTheme.typography.labelMedium, color = palette.secondaryText, maxLines = 1)
+                    Text(item.title.ifBlank { item.appLabel }, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, color = palette.primaryText, maxLines = 1)
+                    if (item.text.isNotBlank()) Text(item.text, style = MaterialTheme.typography.bodyMedium, color = palette.secondaryText, maxLines = 1)
+                }
+            }
+            if (item.actions.isNotEmpty()) {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) {
+                    item.actions.take(5).forEach { action ->
+                        val icon = mediaActionIcon(action.title)
+                        if (icon != null) {
+                            IconButton(onClick = { PixelShadeNotificationStore.runAction(item, action) }, modifier = Modifier.size(42.dp)) {
+                                Icon(icon, action.title, Modifier.size(26.dp), tint = palette.primaryText)
+                            }
+                        } else {
+                            TextButton(onClick = { PixelShadeNotificationStore.runAction(item, action) }) { Text(action.title, maxLines = 1) }
                         }
                     }
                 }
@@ -495,26 +890,35 @@ private fun RuntimeNotificationCard(item: ShadeNotification, palette: PixelShade
 }
 
 @Composable
-private fun RuntimeMediaCard(item: ShadeNotification, palette: PixelShadePalette, onFinish: () -> Unit) {
-    Surface(
-        Modifier.fillMaxWidth().clickable { if (PixelShadeNotificationStore.open(item)) onFinish() },
-        shape = RoundedCornerShape(24.dp),
-        color = palette.inactiveTile
-    ) {
-        Column(Modifier.padding(15.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text(item.appLabel, style = MaterialTheme.typography.labelMedium, color = palette.secondaryText)
-            Text(item.title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold, color = palette.primaryText)
-            if (item.text.isNotBlank()) Text(item.text, style = MaterialTheme.typography.bodyMedium, color = palette.secondaryText)
-            if (item.actions.isNotEmpty()) {
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
-                    item.actions.take(5).forEach { action ->
-                        FilledTonalButton(onClick = { PixelShadeNotificationStore.runAction(action) }, contentPadding = PaddingValues(horizontal = 10.dp)) {
-                            Text(action.title, maxLines = 1)
-                        }
-                    }
-                }
-            }
-        }
+private fun RuntimeNotificationArtwork(item: ShadeNotification, palette: PixelShadePalette, modifier: Modifier) {
+    val context = LocalContext.current
+    val drawable = remember(item.key, item.packageName, item.artwork) {
+        runCatching {
+            item.artwork?.loadDrawable(context)
+                ?: context.packageManager.getApplicationIcon(item.packageName)
+        }.getOrNull()
+    }
+    if (drawable != null) {
+        AppOrDrawableIcon(item.packageName, drawable, null, modifier)
+    } else {
+        Icon(Icons.Default.Notifications, item.appLabel, modifier, tint = palette.secondaryText)
+    }
+}
+
+private fun notificationTimestamp(postTime: Long): String = runCatching {
+    DateFormat.getTimeInstance(DateFormat.SHORT).format(Date(postTime))
+}.getOrDefault("")
+
+private fun mediaActionIcon(title: String): ImageVector? {
+    val value = title.trim().lowercase()
+    return when {
+        "previous" in value || value == "prev" -> Icons.Default.SkipPrevious
+        "rewind" in value -> Icons.Default.FastRewind
+        "pause" in value -> Icons.Default.Pause
+        "play" in value || "resume" in value -> Icons.Default.PlayArrow
+        "next" in value || "skip" in value -> Icons.Default.SkipNext
+        "forward" in value -> Icons.Default.FastForward
+        else -> null
     }
 }
 

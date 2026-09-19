@@ -57,7 +57,8 @@ internal fun rememberRuntimeSystemStatus(context: Context): RuntimeSystemStatus 
 
 private fun readRuntimeSystemStatus(context: Context): RuntimeSystemStatus {
     val now = Date()
-    val time = SimpleDateFormat("h:mm", Locale.getDefault()).format(now)
+    val timePattern = if (PixelShadeConfig.use24HourClock(context)) "HH:mm" else "h:mm"
+    val time = SimpleDateFormat(timePattern, Locale.getDefault()).format(now)
     val date = SimpleDateFormat("EEE, MMM d", Locale.getDefault()).format(now)
 
     val connectivityManager = context.getSystemService(ConnectivityManager::class.java)

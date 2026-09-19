@@ -20,6 +20,21 @@ object PixelShadeThemeEngine {
     const val KEY_BRIGHTNESS_TRACK = "theme_brightness_track"
     const val KEY_BRIGHTNESS_FILL = "theme_brightness_fill"
 
+    // Granular element colors kept separate from the core palette so existing
+    // Dynamic/Hybrid/Manual behavior stays stable while RC81 adds parity controls.
+    const val KEY_NOTIFICATION_BACKGROUND = "theme_notification_background"
+    const val KEY_TILE_TEXT = "theme_tile_text"
+    const val KEY_HEADER_TEXT = "theme_header_text"
+    const val KEY_FOOTER_BACKGROUND = "theme_footer_background"
+    const val KEY_FOOTER_TEXT = "theme_footer_text"
+    const val KEY_HANDLE = "theme_handle"
+    const val KEY_SLIDER_ICON = "theme_slider_icon"
+    const val KEY_SLIDER_THUMB = "theme_slider_thumb"
+    const val KEY_SLIDER_PROGRESS = "theme_slider_progress"
+    const val KEY_PANEL_INFO_TEXT = "theme_panel_info_text"
+    const val KEY_REPLY_BOX = "theme_reply_box"
+    const val KEY_BACKGROUND = "theme_background"
+
     enum class Mode { DYNAMIC, HYBRID, MANUAL }
 
     fun mode(context: Context): Mode = runCatching {
@@ -49,6 +64,12 @@ object PixelShadeThemeEngine {
     fun parseOr(value: String?, fallback: Color): Color {
         if (value.isNullOrBlank()) return fallback
         return runCatching { Color(AndroidColor.parseColor(normalizeHex(value))) }.getOrDefault(fallback)
+    }
+
+    /** Resolve an optional granular color without forcing it into PixelShadePalette. */
+    fun resolvedColor(context: Context, key: String, fallback: Color): Color = when (mode(context)) {
+        Mode.DYNAMIC -> fallback
+        Mode.HYBRID, Mode.MANUAL -> parseOr(storedColor(context, key), fallback)
     }
 }
 

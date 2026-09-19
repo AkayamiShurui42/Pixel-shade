@@ -134,9 +134,16 @@ class PixelShadeAccessibilityService : AccessibilityService() {
 
     private fun openShade() {
         if (!PixelShadeRuntime.isEnabled(this)) return
-        if (PixelShadeConfig.suppressStockShade(this)) requestCollapse()
-        startActivity(Intent(this, PixelShadePanelV2Activity::class.java)
-            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_NO_ANIMATION))
+        val launchShade = {
+            startActivity(Intent(this, PixelShadePanelV2Activity::class.java)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_NO_ANIMATION))
+        }
+        if (PixelShadeConfig.suppressStockShade(this)) {
+            requestCollapse()
+            StatusBarSuppression.collapsePanels(this, launchShade)
+        } else {
+            launchShade()
+        }
     }
 
     override fun onDestroy() {

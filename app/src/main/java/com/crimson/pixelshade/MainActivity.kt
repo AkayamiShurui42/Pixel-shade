@@ -16,10 +16,10 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -36,7 +36,7 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
-import rikka.shizuku.Shizuku
+import af.shizuku.Shizuku
 
 private const val SHIZUKU_REQUEST = 1718
 private const val PREF_THEME_MODE = "theme_mode"
@@ -86,7 +86,13 @@ private fun PixelShadeRoot() {
                     editorTab = it
                     screen = Screen.EDITOR
                 },
-                onOpenTiles = { screen = Screen.TILES }
+                onOpenTiles = { screen = Screen.TILES },
+                onPreview = {
+                    context.startActivity(
+                        Intent(context, PixelShadePanelV2Activity::class.java)
+                            .putExtra(PixelShadePanelV2Activity.EXTRA_START_EXPANDED, true)
+                    )
+                }
             )
             Screen.EDITOR -> PixelShadeEditorV2(
                 onClose = { screen = Screen.HOME },
@@ -103,7 +109,8 @@ private fun PixelShadeSetup(
     themeMode: ThemeMode,
     onThemeModeChange: (ThemeMode) -> Unit,
     onOpenEditor: (PixelShadeEditorTab) -> Unit,
-    onOpenTiles: () -> Unit
+    onOpenTiles: () -> Unit,
+    onPreview: () -> Unit
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -156,8 +163,11 @@ private fun PixelShadeSetup(
     val shizukuGranted = shizukuRunning && runCatching {
         Shizuku.checkSelfPermission() == PackageManager.PERMISSION_GRANTED
     }.getOrDefault(false)
+    val shizukuPlus = shizukuGranted && StatusBarSuppression.isEnhancedBackend()
     val adbOverride = prefs.getBoolean(AdbOverrideReceiver.PREF_ADB_OVERRIDE, false)
-    val privilegedReady = shizukuGranted || adbOverride
+    // An ADB broadcast can exercise the setup UI but cannot deliver a Shizuku Binder.
+    // Never present it as privileged SystemUI control.
+    val privilegedReady = shizukuGranted
     val enabledListeners = Settings.Secure.getString(context.contentResolver, "enabled_notification_listeners").orEmpty()
     val notificationAccess = enabledListeners.contains(context.packageName)
     val enabledAccessibility = Settings.Secure.getString(context.contentResolver, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES).orEmpty()
@@ -187,11 +197,11 @@ private fun PixelShadeSetup(
     Scaffold(topBar = { CenterAlignedTopAppBar(title = { Text("Pixel Shade") }) }) { padding ->
         Column(
             Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState()).padding(horizontal = 18.dp, vertical = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(18.dp)
+            verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
             Surface(
                 modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(34.dp),
+                shape = RoundedCornerShape(24.dp),
                 tonalElevation = 3.dp,
                 color = if (triggerEnabled) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainerHigh
             ) {
@@ -215,11 +225,11 @@ private fun PixelShadeSetup(
                 }
             }
 
-            Text("Customize", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Column(verticalArrangement = Arrangement.spacedBy(18.dp)) {
+            Text("Pixel Shade controls", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
                     HubCategory("Tiles", Icons.Default.GridView, onOpenTiles)
-                    HubCategory("Sliders", Icons.Default.Tune) { onOpenEditor(PixelShadeEditorTab.SLIDERS) }
+                    HubCategory("Tile styles", Icons.Default.Gradient) { onOpenEditor(PixelShadeEditorTab.TILE_STYLES) }
                     HubCategory("Colors", Icons.Default.Palette) { onOpenEditor(PixelShadeEditorTab.COLORS) }
                 }
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
@@ -230,7 +240,7 @@ private fun PixelShadeSetup(
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
                     HubCategory("Motion", Icons.Default.Animation) { onOpenEditor(PixelShadeEditorTab.MOTION) }
                     HubCategory("Advanced", Icons.Default.Build) { onOpenEditor(PixelShadeEditorTab.ADVANCED) }
-                    HubCategory("Preview", Icons.Default.Visibility) { onOpenEditor(PixelShadeEditorTab.LAYOUT) }
+                    HubCategory("Preview", Icons.Default.Visibility, onPreview)
                 }
             }
 
@@ -257,12 +267,25 @@ private fun PixelShadeSetup(
                 PermissionRow("Modify system settings", writeSettings) {
                     context.startActivity(Intent(Settings.ACTION_MANAGE_WRITE_SETTINGS, Uri.parse("package:${context.packageName}")))
                 }
-                PermissionRow(if (adbOverride) "Privileged access (ADB fallback)" else "Shizuku / Shizuku+", privilegedReady) {
+                PermissionRow(
+                    if (shizukuPlus) "Shizuku+ privileged access" else "Shizuku privileged access",
+                    privilegedReady
+                ) {
                     runCatching {
-                        if (Shizuku.pingBinder() && Shizuku.checkSelfPermission() != PackageManager.PERMISSION_GRANTED) {
-                            Shizuku.requestPermission(SHIZUKU_REQUEST)
+                        when {
+                            !Shizuku.pingBinder() -> operationMessage = "Start Shizuku+ first, then return here to grant Pixel Shade access."
+                            Shizuku.checkSelfPermission() != PackageManager.PERMISSION_GRANTED -> Shizuku.requestPermission(SHIZUKU_REQUEST)
+                            else -> operationMessage = if (StatusBarSuppression.isEnhancedBackend()) "Shizuku+ backend connected" else "Standard Shizuku backend connected"
                         }
-                    }.onFailure { refresh++ }
+                    }.onFailure { operationMessage = "Could not contact the Shizuku+ backend" }
+                    refresh++
+                }
+                if (adbOverride && !shizukuGranted) {
+                    Text(
+                        "ADB diagnostic override is enabled, but it cannot replace a Shizuku+ Binder for SystemUI control.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                 }
                 PermissionRow("Ignore battery optimization", batteryExempt) {
                     runCatching {
@@ -286,36 +309,40 @@ private fun PixelShadeSetup(
             }
 
             SettingsExpansionCard(
-                title = "OxygenOS integration",
+                title = "Stock shade control",
                 subtitle = if (PixelShadeConfig.suppressStockShade(context)) "Stock shade blocking enabled" else "Stock shade blocking disabled",
                 expanded = oxygenExpanded,
                 onToggle = { oxygenExpanded = !oxygenExpanded }
             ) {
                 Text(
-                    "Primary block uses Android's statusbar-expansion disable flag through Shizuku.",
+                    "Shizuku+ disables SystemUI expansion and collapses an already-open stock panel before Pixel Shade appears.",
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
-                Text("ADB: cmd statusbar send-disable-flag statusbar-expansion", style = MaterialTheme.typography.bodySmall)
+                Text("Backend: ${StatusBarSuppression.lastResult(context)}", style = MaterialTheme.typography.bodySmall)
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     FilledTonalButton(
                         enabled = shizukuGranted,
                         onClick = {
-                            StatusBarSuppression.setExpansionDisabled(context, true)
-                            operationMessage = "Requested stock shade block"
+                            StatusBarSuppression.setExpansionDisabled(context, true) { _, detail ->
+                                operationMessage = detail
+                                refresh++
+                            }
                         },
                         modifier = Modifier.weight(1f)
                     ) { Text("Block now") }
                     OutlinedButton(
                         enabled = shizukuGranted,
                         onClick = {
-                            StatusBarSuppression.setExpansionDisabled(context, false)
-                            operationMessage = "Requested stock shade restore"
+                            StatusBarSuppression.setExpansionDisabled(context, false) { _, detail ->
+                                operationMessage = detail
+                                refresh++
+                            }
                         },
                         modifier = Modifier.weight(1f)
                     ) { Text("Restore") }
                 }
                 HorizontalDivider()
-                Text("Separate OxygenOS QS plugin", style = MaterialTheme.typography.titleSmall)
+                Text("OEM separate-QS plug-in compatibility", style = MaterialTheme.typography.titleSmall)
                 when {
                     disabledPluginPackage != null -> {
                         Text("Pixel Shade isolated: $disabledPluginPackage", style = MaterialTheme.typography.bodySmall)
@@ -366,7 +393,7 @@ private fun PixelShadeSetup(
                     OplusQsPluginControl.restore(context) { refresh++ }
                 },
                 modifier = Modifier.fillMaxWidth()
-            ) { Text("Emergency restore OxygenOS shade") }
+            ) { Text("Emergency restore stock shade") }
             Spacer(Modifier.height(20.dp))
         }
     }
@@ -374,12 +401,21 @@ private fun PixelShadeSetup(
 
 @Composable
 private fun HubCategory(label: String, icon: ImageVector, onClick: () -> Unit) {
-    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.width(96.dp)) {
-        FilledTonalIconButton(onClick = onClick, modifier = Modifier.size(64.dp), shape = CircleShape) {
-            Icon(icon, label, Modifier.size(29.dp))
+    Surface(
+        modifier = Modifier.width(110.dp).height(92.dp).clickable(onClick = onClick),
+        shape = RoundedCornerShape(18.dp),
+        color = MaterialTheme.colorScheme.surfaceContainer,
+        tonalElevation = 1.dp
+    ) {
+        Column(
+            Modifier.fillMaxSize().padding(10.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
+        ) {
+            Icon(icon, label, Modifier.size(25.dp))
+            Spacer(Modifier.height(7.dp))
+            Text(label, style = MaterialTheme.typography.labelLarge, maxLines = 1)
         }
-        Spacer(Modifier.height(7.dp))
-        Text(label, style = MaterialTheme.typography.labelLarge, maxLines = 1)
     }
 }
 

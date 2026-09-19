@@ -2,10 +2,12 @@ package com.crimson.pixelshade
 
 import android.app.Notification
 import android.app.PendingIntent
+import android.graphics.drawable.Icon
 import android.os.Handler
 import android.os.Looper
 import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
+import android.util.Log
 import androidx.compose.runtime.mutableStateListOf
 
 
@@ -25,10 +27,12 @@ data class ShadeNotification(
     val ongoing: Boolean,
     val isMedia: Boolean,
     val contentIntent: PendingIntent?,
-    val actions: List<ShadeNotificationAction>
+    val actions: List<ShadeNotificationAction>,
+    val artwork: Icon?
 )
 
 object PixelShadeNotificationStore {
+    private const val TAG = "PixelShadeNotification"
     val items = mutableStateListOf<ShadeNotification>()
     private val main = Handler(Looper.getMainLooper())
     @Volatile private var service: PixelShadeNotificationListener? = null
@@ -62,15 +66,74 @@ object PixelShadeNotificationStore {
         main.post { items.removeAll { it.key == key } }
     }
 
-    fun open(item: ShadeNotification): Boolean = runCatching {
-        item.contentIntent?.send() ?: return false
-        true
-    }.getOrDefault(false)
+    /**
+     * A shade is an ephemeral surface. Dispatch first, then close on the next
+     * main-loop turn so the destination activity can win task focus instead of
+     * revealing Pixel Shade beneath the panel.
+     */
+    fun open(item: ShadeNotification, onDispatched: () -> Unit): Boolean {
+        val pendingIntent = item.contentIntent
+        if (pendingIntent == null) {
+            Log.i(TAG, "contentIntent missing package=${item.packageName} key=${item.key}; keeping panel open")
+            return false
+        }
+        Log.i(TAG, "contentIntent send package=${item.packageName} key=${item.key}")
+        return try {
+            pendingIntent.send()
+            Log.i(TAG, "contentIntent dispatched package=${item.packageName} key=${item.key}; panel close queued")
+            main.post { onDispatched() }
+            true
+        } catch (error: PendingIntent.CanceledException) {
+            Log.w(TAG, "contentIntent cancelled package=${item.packageName} key=${item.key}; panel remains open", error)
+            false
+        } catch (error: Exception) {
+            Log.e(TAG, "contentIntent failed package=${item.packageName} key=${item.key}; panel remains open", error)
+            false
+        }
+    }
 
-    fun runAction(action: ShadeNotificationAction): Boolean = runCatching {
-        action.pendingIntent?.send() ?: return false
-        true
-    }.getOrDefault(false)
+    /** Compatibility path for the legacy panel; V2 supplies the close callback above. */
+    fun open(item: ShadeNotification): Boolean = open(item) {}
+
+    fun runAction(item: ShadeNotification, action: ShadeNotificationAction): Boolean {
+        val pendingIntent = action.pendingIntent
+        if (pendingIntent == null) {
+            Log.i(TAG, "action missing package=${item.packageName} key=${item.key} title=${action.title}")
+            return false
+        }
+        Log.i(TAG, "action send package=${item.packageName} key=${item.key} title=${action.title}")
+        return try {
+            pendingIntent.send()
+            Log.i(TAG, "action dispatched package=${item.packageName} key=${item.key} title=${action.title}")
+            true
+        } catch (error: PendingIntent.CanceledException) {
+            Log.w(TAG, "action cancelled package=${item.packageName} key=${item.key} title=${action.title}", error)
+            false
+        } catch (error: Exception) {
+            Log.e(TAG, "action failed package=${item.packageName} key=${item.key} title=${action.title}", error)
+            false
+        }
+    }
+
+    /** Compatibility path for the legacy panel, which does not retain the parent notification. */
+    fun runAction(action: ShadeNotificationAction): Boolean {
+        val pendingIntent = action.pendingIntent
+        if (pendingIntent == null) {
+            Log.i(TAG, "legacy action missing title=${action.title}")
+            return false
+        }
+        return try {
+            pendingIntent.send()
+            Log.i(TAG, "legacy action dispatched title=${action.title}")
+            true
+        } catch (error: PendingIntent.CanceledException) {
+            Log.w(TAG, "legacy action cancelled title=${action.title}", error)
+            false
+        } catch (error: Exception) {
+            Log.e(TAG, "legacy action failed title=${action.title}", error)
+            false
+        }
+    }
 
     fun dismiss(key: String) {
         runCatching { service?.cancelNotification(key) }
@@ -146,7 +209,8 @@ class PixelShadeNotificationListener : NotificationListenerService() {
             ongoing = sbn.isOngoing,
             isMedia = isMedia,
             contentIntent = notification.contentIntent,
-            actions = actions
+            actions = actions,
+            artwork = runCatching { notification.getLargeIcon() }.getOrNull()
         )
     }
 }
