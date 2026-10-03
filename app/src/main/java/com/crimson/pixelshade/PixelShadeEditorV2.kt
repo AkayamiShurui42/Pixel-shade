@@ -391,7 +391,7 @@ fun PixelShadeEditorV2(
                     PixelShadeEditorTab.HANDLE -> {
                         EditorSection("Trigger handles", Icons.Default.SwipeDown) {
                             Text(
-                                "Top opens downward. Bottom, left and right handles open with an upward swipe. Hiding the handle icon keeps the touch target active.",
+                                "Top, bottom, left and right swipe triggers all open with a downward sweep. Bottom can alternatively use double tap. Hiding the handle icon keeps the touch target active.",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -599,6 +599,11 @@ fun PixelShadeEditorV2(
                     PixelShadeEditorTab.ADVANCED -> {
                         EditorSection("System integration", Icons.Default.Build) {
                             EditorSwitch("Block OxygenOS stock shade", suppressStock) { suppressStock = it }
+                            Text(
+                                "Safety behavior: this request is only applied when Shizuku is granted and Pixel Shade has a usable accessibility or overlay trigger. Otherwise the stock shade remains available.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
                             EditorSwitch("Vibrate on successful handle gesture", vibrateOnTouch) { vibrateOnTouch = it }
                             EditorSwitch("Auto close after tapping a Quick Settings tile", autoCloseTile) { autoCloseTile = it }
                             Text(

@@ -132,7 +132,7 @@ object PixelShadeConfig {
     fun smoothBrightness(context: Context) = prefs(context).getBoolean(KEY_SMOOTH_BRIGHTNESS, true)
     fun deadZoneDp(context: Context) = prefs(context).getFloat(KEY_GESTURE_DEAD_ZONE_DP, 24f)
     fun tapAction(context: Context) = prefs(context).getString(KEY_TAP_ACTION, "none") ?: "none"
-    fun suppressStockShade(context: Context) = prefs(context).getBoolean(KEY_SUPPRESS_STOCK_SHADE, true)
+    fun suppressStockShade(context: Context) = prefs(context).getBoolean(KEY_SUPPRESS_STOCK_SHADE, false)
     fun vibrateOnTouch(context: Context) = prefs(context).getBoolean(KEY_VIBRATE_ON_TOUCH, true)
     fun useDeviceHaptics(context: Context) = prefs(context).getBoolean(KEY_USE_DEVICE_HAPTICS, true)
     fun autoCloseTile(context: Context) = prefs(context).getBoolean(KEY_AUTO_CLOSE_TILE, false)

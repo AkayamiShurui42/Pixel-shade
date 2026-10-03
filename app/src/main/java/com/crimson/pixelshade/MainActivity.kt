@@ -179,6 +179,8 @@ private fun PixelShadeSetup(
         ?.isIgnoringBatteryOptimizations(context.packageName) == true
     val oplusPlugins = remember(refresh) { OplusQsPluginControl.discover(context) }
     val disabledPluginPackage = OplusQsPluginControl.packageDisabledByUs(context)
+    val suppressionRequested = PixelShadeConfig.suppressStockShade(context)
+    val suppressionSafe = StatusBarSuppression.canSafelyBlock(context)
 
     fun setServiceEnabled(enabled: Boolean) {
         triggerEnabled = enabled
@@ -315,13 +317,22 @@ private fun PixelShadeSetup(
                 onToggle = { oxygenExpanded = !oxygenExpanded }
             ) {
                 Text(
-                    "Shizuku+ disables SystemUI expansion and collapses an already-open stock panel before Pixel Shade appears.",
+                    "Persistent stock-shade blocking is off by default. Pixel Shade will only disable SystemUI expansion after Shizuku permission and a working accessibility or overlay trigger are both ready.",
                     color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Text(
+                    when {
+                        suppressionRequested && suppressionSafe -> "Safety gate: ready to block stock shade"
+                        suppressionRequested -> "Safety gate: blocking requested but not active because a required runtime path is missing"
+                        else -> "Safety gate: stock-shade blocking is not requested"
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = if (suppressionRequested && !suppressionSafe) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant
                 )
                 Text("Backend: ${StatusBarSuppression.lastResult(context)}", style = MaterialTheme.typography.bodySmall)
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     FilledTonalButton(
-                        enabled = shizukuGranted,
+                        enabled = suppressionSafe,
                         onClick = {
                             StatusBarSuppression.setExpansionDisabled(context, true) { _, detail ->
                                 operationMessage = detail

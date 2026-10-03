@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.pm.PackageManager
 import android.os.Handler
 import android.os.Looper
+import android.provider.Settings
 import af.shizuku.Shizuku
 import af.shizuku.ShizukuPlusAPI
 import java.util.concurrent.Executors
@@ -64,15 +65,43 @@ object StatusBarSuppression {
         ShizukuPlusAPI.isEnhancedApiSupported()
     }.getOrDefault(false)
 
+    fun replacementTriggerReady(context: Context): Boolean {
+        val app = context.applicationContext
+        return PixelShadeAccessibilityService.isConnected() || Settings.canDrawOverlays(app)
+    }
+
+    fun canSafelyBlock(context: Context): Boolean {
+        val app = context.applicationContext
+        return StatusBarSuppressionPolicy.shouldDisable(
+            pixelShadeEnabled = PixelShadeRuntime.isEnabled(app),
+            suppressionRequested = PixelShadeConfig.suppressStockShade(app),
+            privilegedBackendReady = isReady(),
+            replacementTriggerReady = replacementTriggerReady(app)
+        )
+    }
+
     fun sync(context: Context) {
         val app = context.applicationContext
-        val shouldDisable = PixelShadeRuntime.isEnabled(app) && PixelShadeConfig.suppressStockShade(app)
-        setExpansionDisabled(app, shouldDisable)
+        val shouldDisable = canSafelyBlock(app)
+        when {
+            shouldDisable -> setExpansionDisabled(app, true)
+            StatusBarSuppressionPolicy.shouldRestore(
+                markerSet = PixelShadeRuntime.statusBarWasDisabled(app),
+                shouldDisableNow = false
+            ) -> setExpansionDisabled(app, false)
+            PixelShadeRuntime.isEnabled(app) && PixelShadeConfig.suppressStockShade(app) -> publish(
+                app,
+                "Stock shade was not blocked: Pixel Shade needs Shizuku permission and a working accessibility or overlay trigger first",
+                null,
+                false
+            )
+        }
     }
 
     fun restoreIfNeeded(context: Context) {
         val app = context.applicationContext
-        if (!PixelShadeRuntime.isEnabled(app) && PixelShadeRuntime.statusBarWasDisabled(app)) {
+        val shouldDisable = canSafelyBlock(app)
+        if (StatusBarSuppressionPolicy.shouldRestore(PixelShadeRuntime.statusBarWasDisabled(app), shouldDisable)) {
             setExpansionDisabled(app, false)
         }
     }
@@ -80,6 +109,15 @@ object StatusBarSuppression {
     fun setExpansionDisabled(context: Context, disabled: Boolean, onComplete: ((Boolean, String) -> Unit)? = null) {
         val app = context.applicationContext
         executor.execute {
+            if (disabled && !canSafelyBlock(app)) {
+                publish(
+                    app,
+                    "Stock shade was not blocked: enable Pixel Shade, grant Shizuku, and make sure an accessibility or overlay trigger is available",
+                    onComplete,
+                    false
+                )
+                return@execute
+            }
             if (!isReady()) {
                 publish(app, "Shizuku+ is not connected or permission was not granted", onComplete, false)
                 return@execute
