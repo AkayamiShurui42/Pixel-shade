@@ -2,6 +2,7 @@ package com.crimson.pixelshade
 
 import android.accessibilityservice.AccessibilityService
 import android.content.Intent
+import android.content.res.Configuration
 import android.graphics.PixelFormat
 import android.provider.Settings
 import android.view.Gravity
@@ -19,6 +20,8 @@ class PixelShadeAccessibilityService : AccessibilityService() {
 
         fun isConnected(): Boolean = instance != null
 
+        fun hasWorkingTrigger(): Boolean = instance?.topTriggerAttached == true
+
         fun requestCollapse() {
             instance?.performGlobalAction(GLOBAL_ACTION_DISMISS_NOTIFICATION_SHADE)
         }
@@ -26,31 +29,44 @@ class PixelShadeAccessibilityService : AccessibilityService() {
         fun requestPowerDialog(): Boolean =
             instance?.performGlobalAction(GLOBAL_ACTION_POWER_DIALOG) == true
 
-        fun requestTriggerRefresh() {
-            instance?.let {
-                it.rebuildTopTrigger()
-                StatusBarSuppression.sync(it)
-            }
-        }
+        fun requestTriggerRefresh(): Boolean = instance?.rebuildTopTrigger() == true
     }
 
     private lateinit var wm: WindowManager
-    private var topTrigger: View? = null
+    @Volatile private var topTrigger: View? = null
+    @Volatile private var topTriggerAttached = false
+    @Volatile private var rebuildingTopTrigger = false
 
     override fun onServiceConnected() {
         super.onServiceConnected()
         instance = this
         wm = getSystemService(WINDOW_SERVICE) as WindowManager
-        StatusBarSuppression.restoreIfNeeded(this)
-        rebuildTopTrigger()
-        StatusBarSuppression.sync(this)
+        val accessibilityReady = rebuildTopTrigger()
+        val overlayFallbackReady = PixelShadeTriggerService.requestTriggerRefresh()
+        if (accessibilityReady || overlayFallbackReady) {
+            StatusBarSuppression.sync(this)
+        } else if (PixelShadeRuntime.isEnabled(this) && !PixelShadeConfig.triggersAllowedInCurrentConfiguration(this)) {
+            StatusBarSuppression.restoreTemporarily(this)
+        } else if (PixelShadeRuntime.isEnabled(this)) {
+            PixelShadeTriggerService.requestStockShadeRecovery(this)
+        } else {
+            StatusBarSuppression.restoreIfNeeded(this)
+        }
     }
 
-    fun rebuildTopTrigger() {
-        if (!::wm.isInitialized) return
+    fun rebuildTopTrigger(): Boolean {
+        rebuildingTopTrigger = true
+        if (!::wm.isInitialized) {
+            rebuildingTopTrigger = false
+            return false
+        }
         topTrigger?.let { runCatching { wm.removeView(it) } }
         topTrigger = null
-        if (!PixelShadeRuntime.isEnabled(this)) return
+        topTriggerAttached = false
+        if (!PixelShadeRuntime.isEnabled(this) || !PixelShadeConfig.triggersAllowedInCurrentConfiguration(this)) {
+            rebuildingTopTrigger = false
+            return false
+        }
 
         val density = resources.displayMetrics.density
         val screenW = resources.displayMetrics.widthPixels
@@ -70,6 +86,19 @@ class PixelShadeAccessibilityService : AccessibilityService() {
             }
         }
 
+        root.addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener {
+            override fun onViewAttachedToWindow(attached: View) {
+                if (topTrigger === attached) topTriggerAttached = true
+            }
+
+            override fun onViewDetachedFromWindow(detached: View) {
+                if (topTrigger === detached) {
+                    topTriggerAttached = false
+                    if (!rebuildingTopTrigger) handleLostTopTrigger()
+                }
+            }
+        })
+
         val lp = WindowManager.LayoutParams(
             width,
             touchHeight,
@@ -87,7 +116,10 @@ class PixelShadeAccessibilityService : AccessibilityService() {
         runCatching {
             wm.addView(root, lp)
             topTrigger = root
+            topTriggerAttached = root.isAttachedToWindow
         }
+        rebuildingTopTrigger = false
+        return topTriggerAttached
     }
 
     private inner class TopGestureListener : View.OnTouchListener {
@@ -107,13 +139,14 @@ class PixelShadeAccessibilityService : AccessibilityService() {
                     y0 = event.rawY
                     mode = 0
                     brightness0 = Settings.System.getInt(contentResolver, Settings.System.SCREEN_BRIGHTNESS, 128)
-                    if (PixelShadeConfig.suppressStockShade(this@PixelShadeAccessibilityService)) requestCollapse()
+                    if (PixelShadeConfig.shouldSuppressStockShade(this@PixelShadeAccessibilityService)) requestCollapse()
                 }
                 MotionEvent.ACTION_MOVE -> {
                     val dx = event.rawX - x0
                     val dy = event.rawY - y0
                     if (mode == 0) {
-                        if (PixelShadeConfig.brightnessEnabled(this@PixelShadeAccessibilityService) && abs(dx) >= deadZone && abs(dx) > abs(dy) * 1.2f) mode = 2
+                        if (PixelShadeConfig.brightnessEnabled(this@PixelShadeAccessibilityService) &&
+                            Settings.System.canWrite(this@PixelShadeAccessibilityService) && abs(dx) >= deadZone && abs(dx) > abs(dy) * 1.2f) mode = 2
                         else if (dy >= deadZone && abs(dy) > abs(dx) * 1.2f) mode = 1
                     }
                     if (mode == 2 && Settings.System.canWrite(this@PixelShadeAccessibilityService)) {
@@ -132,13 +165,42 @@ class PixelShadeAccessibilityService : AccessibilityService() {
         }
     }
 
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        if (!PixelShadeRuntime.isEnabled(this)) return
+        if (!PixelShadeConfig.triggersAllowedInCurrentConfiguration(this)) {
+            StatusBarSuppression.restoreTemporarily(this) { restored, _ ->
+                if (restored) {
+                    rebuildTopTrigger()
+                    PixelShadeTriggerService.requestTriggerRefresh()
+                }
+            }
+            return
+        }
+        val accessibilityReady = rebuildTopTrigger()
+        val overlayReady = PixelShadeTriggerService.requestTriggerRefresh()
+        if (accessibilityReady || overlayReady) {
+            StatusBarSuppression.sync(this)
+        } else {
+            PixelShadeTriggerService.requestStockShadeRecovery(this)
+        }
+    }
+
+    private fun handleLostTopTrigger() {
+        if (!PixelShadeRuntime.isEnabled(this)) return
+        if (!PixelShadeConfig.triggersAllowedInCurrentConfiguration(this)) {
+            StatusBarSuppression.restoreTemporarily(this)
+        } else if (!PixelShadeTriggerService.requestTriggerRefresh()) {
+            PixelShadeTriggerService.requestStockShadeRecovery(this)
+        }
+    }
     private fun openShade() {
         if (!PixelShadeRuntime.isEnabled(this)) return
         val launchShade = {
             startActivity(Intent(this, PixelShadePanelV2Activity::class.java)
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_NO_ANIMATION))
         }
-        if (PixelShadeConfig.suppressStockShade(this)) {
+        if (PixelShadeConfig.shouldSuppressStockShade(this)) {
             requestCollapse()
             StatusBarSuppression.collapsePanels(this, launchShade)
         } else {
@@ -147,14 +209,35 @@ class PixelShadeAccessibilityService : AccessibilityService() {
     }
 
     override fun onDestroy() {
+        // Force an application-overlay top trigger before removing the Accessibility
+        // overlay. If that handoff is unavailable, a foreground recovery service owns
+        // restoration and remains visible until Android's stock shade is verified.
+        val runtimeEnabled = PixelShadeRuntime.isEnabled(this)
+        val fallbackReady = runtimeEnabled && PixelShadeTriggerService.requestRecoveryHandoff()
+
+        rebuildingTopTrigger = true
         topTrigger?.let { runCatching { wm.removeView(it) } }
         topTrigger = null
+        topTriggerAttached = false
+        rebuildingTopTrigger = false
         if (instance === this) instance = null
+
+        if (runtimeEnabled && !fallbackReady) {
+            if (PixelShadeRuntime.statusBarWasDisabled(this)) {
+                val recoveryStarted = PixelShadeTriggerService.requestStockShadeRecovery(this)
+                if (!recoveryStarted) {
+                    StatusBarSuppression.restore(this) { restored, _ ->
+                        if (restored) PixelShadeRuntime.setEnabled(this, false)
+                    }
+                }
+            } else {
+                PixelShadeRuntime.setEnabled(this, false)
+            }
+        }
         super.onDestroy()
     }
-
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
-        if (PixelShadeRuntime.isEnabled(this) && event?.packageName == "com.android.systemui" && PixelShadeConfig.suppressStockShade(this)) {
+        if (PixelShadeRuntime.isEnabled(this) && event?.packageName == "com.android.systemui" && PixelShadeConfig.shouldSuppressStockShade(this)) {
             val type = event.eventType
             if (type == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED || type == AccessibilityEvent.TYPE_WINDOWS_CHANGED) {
                 requestCollapse()
