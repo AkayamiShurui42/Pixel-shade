@@ -60,13 +60,13 @@ jobs:
           cp third_party/shizuku-plus/api/build/outputs/aar/api-release.aar app/libs/shizuku-plus-api.aar
           cp third_party/shizuku-plus/provider/build/outputs/aar/provider-release.aar app/libs/shizuku-plus-provider.aar
 
+      - name: Run Pixel Shade unit tests
+        run: gradle --no-daemon :app:testDebugUnitTest --stacktrace
+
       - name: Restore stable debug signing key
         run: |
           base64 --decode ci/pixelshade-debug.keystore.b64 > app/pixelshade-debug.keystore
           keytool -list -storetype JKS -keystore app/pixelshade-debug.keystore -storepass pixelshade-debug -alias pixelshade-debug >/dev/null
-
-      - name: Run Pixel Shade unit tests
-        run: gradle --no-daemon :app:testDebugUnitTest --stacktrace
 
       - name: Build standalone Pixel Shade APK
         run: gradle --no-daemon :app:assembleDebug --stacktrace
