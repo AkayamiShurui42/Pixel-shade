@@ -168,7 +168,7 @@ fun PixelShadeEditor(onClose: () -> Unit, onOpenTiles: () -> Unit) {
                         SettingSwitch("Reverse direction", null, reverse) { reverse = it; persist() }
                     }
                     SliderSetting("Gesture dead zone", deadZone, 4f..48f, "${deadZone.toInt()} dp") { deadZone = it; persist() }
-                    SettingSwitch("Block OxygenOS shade", "Uses the accessibility overlay trigger and immediately dismisses SystemUI if OxygenOS still starts opening.", suppressStock) { suppressStock = it; persist() }
+                    SettingSwitch("Block OxygenOS shade", "Only activates persistent blocking after Shizuku and a usable Pixel Shade trigger are ready; otherwise the stock shade stays available.", suppressStock) { suppressStock = it; persist() }
                 }
 
                 VisualSection("Appearance", Icons.Default.Palette) {
