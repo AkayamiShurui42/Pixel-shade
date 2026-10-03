@@ -4,60 +4,256 @@ import android.app.*
 import android.content.Intent
 import android.content.res.Configuration
 import android.graphics.PixelFormat
+import android.os.Build
+import android.os.Bundle
+import android.os.Handler
 import android.os.IBinder
+import android.os.Looper
+import android.os.ResultReceiver
 import android.provider.Settings
 import android.view.*
 import android.widget.FrameLayout
+import af.shizuku.Shizuku
 import kotlin.math.abs
 import kotlin.math.roundToInt
 
 class PixelShadeTriggerService : Service() {
+    companion object {
+        const val ACTION_ENABLE_AND_SUPPRESS = "com.crimson.pixelshade.action.ENABLE_AND_SUPPRESS"
+        const val ACTION_RECOVER_STOCK_SHADE = "com.crimson.pixelshade.action.RECOVER_STOCK_SHADE"
+        const val EXTRA_ACTIVATION_RECEIVER = "activation_receiver"
+        const val RESULT_ACTIVATION_OK = 1
+        const val RESULT_ACTIVATION_FAILED = 0
+        const val RESULT_DETAIL = "detail"
+
+        @Volatile private var instance: PixelShadeTriggerService? = null
+        @Volatile private var registeredTrigger = false
+
+        fun hasWorkingTrigger(): Boolean =
+            registeredTrigger || PixelShadeAccessibilityService.hasWorkingTrigger()
+
+        fun requestTriggerRefresh(): Boolean {
+            val service = instance ?: return false
+            return service.rebuildTriggers()
+        }
+
+        /** Establish an application-overlay trigger before Accessibility removes its view. */
+        fun requestRecoveryHandoff(): Boolean {
+            val service = instance ?: return false
+            service.rebuildTriggers(forceOverlayTop = true)
+            return registeredTrigger
+        }
+
+        fun requestStockShadeRecovery(context: android.content.Context): Boolean = runCatching {
+            context.startForegroundService(
+                Intent(context, PixelShadeTriggerService::class.java)
+                    .setAction(ACTION_RECOVER_STOCK_SHADE)
+            )
+        }.isSuccess
+    }
+
     private lateinit var wm: WindowManager
     private val triggers = mutableListOf<View>()
+    private val mainHandler = Handler(Looper.getMainLooper())
+    @Volatile private var rebuildingTriggers = false
+    private val shizukuBinderReceived = Shizuku.OnBinderReceivedListener {
+        mainHandler.post {
+            when {
+                !PixelShadeRuntime.isEnabled(this) && PixelShadeRuntime.statusBarWasDisabled(this) ->
+                    recoverStockShade(null, "Shizuku reconnected while stock-shade recovery was pending")
+                !PixelShadeRuntime.isEnabled(this) -> stopSelf()
+                !PixelShadeConfig.triggersAllowedInCurrentConfiguration(this) ->
+                    StatusBarSuppression.restoreTemporarily(this) { restored, _ ->
+                        if (restored) rebuildTriggers()
+                        else updateServiceNotification("Recovery needed - open Pixel Shade or use ADB")
+                    }
+                verifyTriggers() -> StatusBarSuppression.sync(this)
+                else -> failActivation(null, "No working Pixel Shade trigger remained after Shizuku reconnected")
+            }
+        }
+    }
 
     private enum class TriggerEdge { TOP, BOTTOM, LEFT, RIGHT }
 
     override fun onCreate() {
         super.onCreate()
+        instance = this
         wm = getSystemService(WINDOW_SERVICE) as WindowManager
         createChannel()
-        startForeground(1717, Notification.Builder(this, "pixel_shade")
-            .setSmallIcon(android.R.drawable.stat_sys_download_done)
-            .setContentTitle("Pixel Shade active")
-            .setContentText("Gesture triggers are running")
-            .build())
-        StatusBarSuppression.restoreIfNeeded(this)
-        StatusBarSuppression.sync(this)
-        rebuildTriggers()
+        startForeground(1717, serviceNotification("Gesture triggers are running"))
+        runCatching { Shizuku.addBinderReceivedListenerSticky(shizukuBinderReceived) }
     }
 
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        mainHandler.post {
+            if (!PixelShadeRuntime.isEnabled(this)) return@post
+            if (!PixelShadeConfig.triggersAllowedInCurrentConfiguration(this)) {
+                StatusBarSuppression.restoreTemporarily(this) { restored, _ ->
+                    if (restored) rebuildTriggers()
+                    else updateServiceNotification("Recovery needed - open Pixel Shade or use ADB")
+                }
+            } else if (verifyTriggers()) {
+                StatusBarSuppression.sync(this)
+            } else {
+                failActivation(null, "Pixel Shade could not rebuild its gesture triggers after rotation")
+            }
+        }
+    }
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        val receiver = activationReceiver(intent)
+        if (intent?.action == ACTION_RECOVER_STOCK_SHADE) {
+            recoverStockShade(receiver, "Pixel Shade opened its recovery service")
+            return START_STICKY
+        }
         if (!PixelShadeRuntime.isEnabled(this)) {
+            if (PixelShadeRuntime.statusBarWasDisabled(this)) {
+                recoverStockShade(receiver, "Pixel Shade was off while stock-shade recovery was pending")
+                return START_STICKY
+            }
+            sendActivationResult(receiver, false, "Pixel Shade was turned off before activation completed")
             stopSelf()
             return START_NOT_STICKY
         }
-        StatusBarSuppression.sync(this)
-        rebuildTriggers()
-        PixelShadeAccessibilityService.requestTriggerRefresh()
+
+        if (!PixelShadeConfig.triggersAllowedInCurrentConfiguration(this)) {
+            if (intent?.action == ACTION_ENABLE_AND_SUPPRESS && !PixelShadeRuntime.statusBarWasDisabled(this)) {
+                PixelShadeRuntime.setEnabled(this, false)
+                sendActivationResult(receiver, false, "Pixel Shade is configured to stay hidden in landscape")
+                stopSelf()
+                return START_NOT_STICKY
+            }
+            StatusBarSuppression.restoreTemporarily(this) { restored, detail ->
+                if (restored) rebuildTriggers()
+                else updateServiceNotification("Recovery needed - open Pixel Shade or use ADB")
+                sendActivationResult(receiver, false, "$detail. Pixel Shade is paused in landscape")
+            }
+            return START_STICKY
+        }
+
+        if (!verifyTriggers()) {
+            failActivation(receiver, "Pixel Shade could not create every required top, side, or bottom trigger")
+            return START_NOT_STICKY
+        }
+
+        if (intent?.action == ACTION_ENABLE_AND_SUPPRESS) {
+            StatusBarSuppression.confirmAndDisable(this) { success, detail ->
+                if (!success && !PixelShadeRuntime.statusBarWasDisabled(this)) {
+                    PixelShadeRuntime.setEnabled(this, false)
+                    rebuildTriggers()
+                    stopSelf()
+                } else if (!success) {
+                    updateServiceNotification("Recovery needed - open Pixel Shade or use ADB")
+                }
+                sendActivationResult(receiver, success, detail)
+            }
+        } else {
+            StatusBarSuppression.sync(this)
+        }
         return START_STICKY
     }
 
-    private fun rebuildTriggers() {
-        triggers.forEach { runCatching { wm.removeView(it) } }
-        triggers.clear()
-        if (!PixelShadeRuntime.isEnabled(this)) return
-        if (!Settings.canDrawOverlays(this)) return
-        if (PixelShadeConfig.hideInLandscape(this) && resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE) return
-
-        // Accessibility owns the primary top trigger when connected because that
-        // path can also aggressively collapse an OEM shade. The standalone
-        // overlay service continues to own the optional secondary edges.
-        if (!PixelShadeAccessibilityService.isConnected()) addTopTrigger()
-        if (PixelShadeConfig.bottomEnabled(this)) addBottomTrigger()
-        if (PixelShadeConfig.leftEnabled(this)) addSideTrigger(TriggerEdge.LEFT)
-        if (PixelShadeConfig.rightEnabled(this)) addSideTrigger(TriggerEdge.RIGHT)
+    private fun verifyTriggers(): Boolean {
+        if (!PixelShadeConfig.triggersAllowedInCurrentConfiguration(this)) return false
+        val requiresApplicationOverlay = PixelShadeConfig.bottomEnabled(this) ||
+            PixelShadeConfig.leftEnabled(this) || PixelShadeConfig.rightEnabled(this)
+        if (requiresApplicationOverlay && !Settings.canDrawOverlays(this)) return false
+        val accessibilityReady = PixelShadeAccessibilityService.requestTriggerRefresh()
+        val overlayReady = rebuildTriggers()
+        if (requiresApplicationOverlay && !registeredTrigger) return false
+        return accessibilityReady || overlayReady || PixelShadeAccessibilityService.hasWorkingTrigger()
     }
 
+    private fun recoverStockShade(receiver: ResultReceiver?, reason: String) {
+        if (PixelShadeRuntime.statusBarWasDisabled(this)) PixelShadeRuntime.setEnabled(this, true)
+        rebuildTriggers(forceOverlayTop = true)
+        updateServiceNotification("Restoring Android's notification shade")
+        StatusBarSuppression.restore(this) { restored, detail ->
+            if (restored) {
+                PixelShadeRuntime.setEnabled(this, false)
+                rebuildTriggers()
+                sendActivationResult(receiver, false, "$reason. $detail")
+                stopSelf()
+            } else {
+                updateServiceNotification("Recovery needed - open Pixel Shade or use ADB")
+                sendActivationResult(
+                    receiver,
+                    false,
+                    "$reason. $detail. Recovery: ${StatusBarSuppression.ADB_RECOVERY_COMMAND}"
+                )
+            }
+        }
+    }
+
+    private fun failActivation(receiver: ResultReceiver?, reason: String) {
+        if (!PixelShadeRuntime.statusBarWasDisabled(this)) {
+            PixelShadeRuntime.setEnabled(this, false)
+            rebuildTriggers()
+            sendActivationResult(receiver, false, "$reason. Android's notification shade remained available")
+            stopSelf()
+            return
+        }
+
+        // Keep the foreground process and any surviving replacement trigger alive
+        // until restoration is confirmed. Removing the last trigger first would
+        // strand the user if Shizuku disconnected while the stock shade was blocked.
+        StatusBarSuppression.restore(this) { restored, restoreDetail ->
+            val detail = "$reason. $restoreDetail"
+            if (restored) {
+                PixelShadeRuntime.setEnabled(this, false)
+                rebuildTriggers()
+                sendActivationResult(receiver, false, detail)
+                stopSelf()
+            } else {
+                updateServiceNotification("Recovery needed - open Pixel Shade or use ADB")
+                sendActivationResult(
+                    receiver,
+                    false,
+                    "$detail. Pixel Shade is staying active; recovery: ${StatusBarSuppression.ADB_RECOVERY_COMMAND}"
+                )
+            }
+        }
+    }
+
+    private fun sendActivationResult(receiver: ResultReceiver?, success: Boolean, detail: String) {
+        receiver?.send(
+            if (success) RESULT_ACTIVATION_OK else RESULT_ACTIVATION_FAILED,
+            Bundle().apply { putString(RESULT_DETAIL, detail) }
+        )
+    }
+
+    @Suppress("DEPRECATION")
+    private fun activationReceiver(intent: Intent?): ResultReceiver? =
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            intent?.getParcelableExtra(EXTRA_ACTIVATION_RECEIVER, ResultReceiver::class.java)
+        } else {
+            intent?.getParcelableExtra(EXTRA_ACTIVATION_RECEIVER)
+        }
+
+    private fun rebuildTriggers(forceOverlayTop: Boolean = false): Boolean {
+        rebuildingTriggers = true
+        triggers.forEach { runCatching { wm.removeView(it) } }
+        triggers.clear()
+        registeredTrigger = false
+        if (!PixelShadeRuntime.isEnabled(this) || !PixelShadeConfig.triggersAllowedInCurrentConfiguration(this)) {
+            rebuildingTriggers = false
+            return false
+        }
+
+        val overlayAllowed = Settings.canDrawOverlays(this)
+        if (overlayAllowed) {
+            // Accessibility owns the primary top trigger only after its overlay
+            // was actually registered. A configured-but-disconnected service is
+            // not enough to authorize stock-shade suppression.
+            if (forceOverlayTop || !PixelShadeAccessibilityService.hasWorkingTrigger()) addTopTrigger()
+            if (PixelShadeConfig.bottomEnabled(this)) addBottomTrigger()
+            if (PixelShadeConfig.leftEnabled(this)) addSideTrigger(TriggerEdge.LEFT)
+            if (PixelShadeConfig.rightEnabled(this)) addSideTrigger(TriggerEdge.RIGHT)
+        }
+        registeredTrigger = triggers.any { it.isAttachedToWindow }
+        rebuildingTriggers = false
+        return registeredTrigger || PixelShadeAccessibilityService.hasWorkingTrigger()
+    }
     private fun visibleStripPx(maxSize: Int): Int {
         if (PixelShadeConfig.hideHandleIcon(this)) return 0
         return (PixelShadeConfig.triggerVisibleDp(this) * resources.displayMetrics.density)
@@ -91,8 +287,11 @@ class PixelShadeTriggerService : Service() {
             x = (centerX - width / 2).coerceIn(0, (screenW - width).coerceAtLeast(0))
             y = (PixelShadeConfig.triggerOffsetDp(this@PixelShadeTriggerService) * d).roundToInt()
         }
-        wm.addView(view, lp)
-        triggers += view
+        trackTrigger(view)
+        runCatching {
+            wm.addView(view, lp)
+            triggers += view
+        }
     }
 
     private fun addBottomTrigger() {
@@ -122,8 +321,11 @@ class PixelShadeTriggerService : Service() {
             x = (centerX - width / 2).coerceIn(0, (screenW - width).coerceAtLeast(0))
             y = 0
         }
-        wm.addView(view, lp)
-        triggers += view
+        trackTrigger(view)
+        runCatching {
+            wm.addView(view, lp)
+            triggers += view
+        }
     }
 
     private fun addSideTrigger(edge: TriggerEdge) {
@@ -150,10 +352,31 @@ class PixelShadeTriggerService : Service() {
             gravity = (if (left) Gravity.START else Gravity.END) or Gravity.TOP
             y = (centerY - height / 2).coerceIn(0, (screenH - height).coerceAtLeast(0))
         }
-        wm.addView(view, lp)
-        triggers += view
+        trackTrigger(view)
+        runCatching {
+            wm.addView(view, lp)
+            triggers += view
+        }
     }
 
+    private fun trackTrigger(view: View) {
+        view.addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener {
+            override fun onViewAttachedToWindow(attached: View) {
+                registeredTrigger = true
+            }
+
+            override fun onViewDetachedFromWindow(detached: View) {
+                mainHandler.post {
+                    registeredTrigger = triggers.any { it.isAttachedToWindow }
+                    if (!rebuildingTriggers && PixelShadeRuntime.isEnabled(this@PixelShadeTriggerService) &&
+                        !PixelShadeAccessibilityService.hasWorkingTrigger() && !registeredTrigger
+                    ) {
+                        failActivation(null, "Pixel Shade lost its last attached gesture trigger")
+                    }
+                }
+            }
+        })
+    }
     private inner class GestureListener(
         private val edge: TriggerEdge,
         private val allowBrightness: Boolean
@@ -171,7 +394,9 @@ class PixelShadeTriggerService : Service() {
             val d = resources.displayMetrics.density
             val deadZone = PixelShadeConfig.deadZoneDp(this@PixelShadeTriggerService) * d
             val pullDistance = PixelShadeConfig.pullDistanceDp(this@PixelShadeTriggerService) * d
-            val brightnessEnabled = allowBrightness && PixelShadeConfig.brightnessEnabled(this@PixelShadeTriggerService)
+            val brightnessEnabled = allowBrightness &&
+                PixelShadeConfig.brightnessEnabled(this@PixelShadeTriggerService) &&
+                Settings.System.canWrite(this@PixelShadeTriggerService)
             val sensitivity = PixelShadeConfig.brightnessSensitivity(this@PixelShadeTriggerService)
             val reverse = PixelShadeConfig.brightnessReverse(this@PixelShadeTriggerService)
             when (e.actionMasked) {
@@ -180,7 +405,7 @@ class PixelShadeTriggerService : Service() {
                     y0 = e.rawY
                     mode = 0
                     b0 = Settings.System.getInt(contentResolver, Settings.System.SCREEN_BRIGHTNESS, 128)
-                    if (PixelShadeConfig.suppressStockShade(this@PixelShadeTriggerService)) PixelShadeAccessibilityService.requestCollapse()
+                    if (PixelShadeConfig.shouldSuppressStockShade(this@PixelShadeTriggerService)) PixelShadeAccessibilityService.requestCollapse()
                 }
                 MotionEvent.ACTION_MOVE -> {
                     val dx = e.rawX - x0
@@ -188,7 +413,7 @@ class PixelShadeTriggerService : Service() {
                     if (mode == 0) {
                         if (brightnessEnabled && abs(dx) >= deadZone && abs(dx) > abs(dy) * 1.2f) {
                             mode = 2
-                        } else if ((edge != TriggerEdge.BOTTOM || PixelShadeConfig.bottomActivation(this@PixelShadeTriggerService) == BottomTriggerActivation.SWIPE_DOWN) && edgeGestureDistance(dx, dy) >= deadZone) {
+                        } else if ((edge != TriggerEdge.BOTTOM || PixelShadeConfig.bottomActivation(this@PixelShadeTriggerService) == BottomTriggerActivation.SWIPE_UP) && edgeGestureDistance(dx, dy) >= deadZone) {
                             mode = 1
                         }
                     }
@@ -220,8 +445,8 @@ class PixelShadeTriggerService : Service() {
         }
 
         private fun edgeGestureDistance(dx: Float, dy: Float): Float = when (edge) {
+            TriggerEdge.BOTTOM -> if (dy < 0f && abs(dy) > abs(dx) * 1.15f) -dy else 0f
             TriggerEdge.TOP,
-            TriggerEdge.BOTTOM,
             TriggerEdge.LEFT,
             TriggerEdge.RIGHT -> if (dy > 0f && abs(dy) > abs(dx) * 1.15f) dy else 0f
         }
@@ -254,12 +479,32 @@ class PixelShadeTriggerService : Service() {
             startActivity(Intent(this, PixelShadePanelV2Activity::class.java)
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_NO_ANIMATION))
         }
-        if (PixelShadeConfig.suppressStockShade(this)) {
+        if (PixelShadeConfig.shouldSuppressStockShade(this)) {
             PixelShadeAccessibilityService.requestCollapse()
             StatusBarSuppression.collapsePanels(this, launchShade)
         } else {
             launchShade()
         }
+    }
+
+    private fun serviceNotification(text: String): Notification {
+        val openSettings = PendingIntent.getActivity(
+            this,
+            1717,
+            Intent(this, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        return Notification.Builder(this, "pixel_shade")
+            .setSmallIcon(android.R.drawable.stat_sys_download_done)
+            .setContentTitle("Pixel Shade active")
+            .setContentText(text)
+            .setContentIntent(openSettings)
+            .setOngoing(true)
+            .build()
+    }
+
+    private fun updateServiceNotification(text: String) {
+        (getSystemService(NOTIFICATION_SERVICE) as NotificationManager).notify(1717, serviceNotification(text))
     }
 
     private fun createChannel() {
@@ -269,14 +514,26 @@ class PixelShadeTriggerService : Service() {
     }
 
     override fun onDestroy() {
+        // onDestroy is too late to begin an intentional restore. All normal stop paths
+        // restore first; this only schedules a new foreground recovery owner if Android
+        // tears the service down while the persistent disabled marker is still set.
+        val accessibilityFallbackReady = if (PixelShadeRuntime.isEnabled(this)) {
+            PixelShadeAccessibilityService.requestTriggerRefresh()
+        } else {
+            false
+        }
+        val restartRecovery = PixelShadeRuntime.statusBarWasDisabled(this) && !accessibilityFallbackReady
+
+        rebuildingTriggers = true
         triggers.forEach { runCatching { wm.removeView(it) } }
         triggers.clear()
-        if (!PixelShadeRuntime.isEnabled(this)) {
-            StatusBarSuppression.setExpansionDisabled(this, false)
-        }
-        PixelShadeAccessibilityService.requestTriggerRefresh()
+        registeredTrigger = false
+        rebuildingTriggers = false
+        if (instance === this) instance = null
+        runCatching { Shizuku.removeBinderReceivedListener(shizukuBinderReceived) }
         super.onDestroy()
-    }
 
+        if (restartRecovery) requestStockShadeRecovery(applicationContext)
+    }
     override fun onBind(intent: Intent?): IBinder? = null
 }
