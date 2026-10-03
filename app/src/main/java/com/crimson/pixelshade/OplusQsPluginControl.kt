@@ -7,6 +7,7 @@ import android.os.Handler
 import android.os.Looper
 import af.shizuku.Shizuku
 import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 
 object OplusQsPluginControl {
     const val ACTION_SEPARATE_QS_PLUGIN = "com.android.systemui.action.SEPARATE_QS_PLUGIN"
@@ -52,8 +53,17 @@ object OplusQsPluginControl {
             callback(false)
             return
         }
+        // Persist the recovery target before changing package state. Enabling an
+        // already-enabled package is harmless if the process dies before disable runs.
+        val recoveryRecorded = PixelShadeConfig.prefs(context).edit()
+            .putString(PREF_DISABLED_PACKAGE, candidate.packageName)
+            .commit()
+        if (!recoveryRecorded) {
+            callback(false)
+            return
+        }
         runShell(arrayOf("pm", "disable-user", "--user", "0", candidate.packageName)) { ok ->
-            if (ok) PixelShadeConfig.prefs(context).edit().putString(PREF_DISABLED_PACKAGE, candidate.packageName).apply()
+            if (!ok) PixelShadeConfig.prefs(context).edit().remove(PREF_DISABLED_PACKAGE).commit()
             callback(ok)
         }
     }
@@ -69,7 +79,7 @@ object OplusQsPluginControl {
             return
         }
         runShell(arrayOf("pm", "enable", pkg)) { ok ->
-            if (ok) PixelShadeConfig.prefs(context).edit().remove(PREF_DISABLED_PACKAGE).apply()
+            if (ok) PixelShadeConfig.prefs(context).edit().remove(PREF_DISABLED_PACKAGE).commit()
             callback(ok)
         }
     }
@@ -79,9 +89,12 @@ object OplusQsPluginControl {
             val ok = runCatching {
                 @Suppress("DEPRECATION")
                 val process = Shizuku.newProcess(args, null, null)
-                val code = process.waitFor()
-                runCatching { process.destroy() }
-                code == 0
+                try {
+                    val finished = process.waitForTimeout(5, TimeUnit.SECONDS)
+                    finished && process.exitValue() == 0
+                } finally {
+                    runCatching { process.destroy() }
+                }
             }.getOrDefault(false)
             main.post { callback(ok) }
         }
