@@ -254,12 +254,12 @@ private fun Pixel17RuntimeShade(
     }
 
     val tiles = listOf(
-        RuntimeTile("wifi", "Wi-Fi", Icons.Default.Wifi, compact = true, active = wifiOn, secondaryLabel = if (wifiOn) "Connected" else "Off"),
+        RuntimeTile("wifi", "Wi-Fi", Icons.Default.Wifi, active = wifiOn, secondaryLabel = if (wifiOn) "Connected" else "Off"),
+        RuntimeTile("mobile", "Mobile data", Icons.Default.SignalCellularAlt, active = mobileOn, secondaryLabel = if (mobileOn) "On" else "Off"),
         RuntimeTile("bluetooth", "Bluetooth", Icons.Default.Bluetooth, compact = true, active = bluetoothOn, secondaryLabel = if (bluetoothOn) "On" else "Off"),
         RuntimeTile("flashlight", "Flashlight", Icons.Default.FlashlightOn, compact = true, active = torchOn, secondaryLabel = if (torchOn) "On" else "Off"),
         RuntimeTile("dnd", "Modes", Icons.Default.DoNotDisturbOn, compact = true, active = dndOn, secondaryLabel = if (dndOn) "On" else "Off", strongActive = true),
-        RuntimeTile("mobile", "Mobile data", Icons.Default.SwapVert, active = mobileOn, secondaryLabel = if (mobileOn) "On" else "Off"),
-        RuntimeTile("rotation", "Rotation", Icons.Default.ScreenRotation, active = rotationOn, secondaryLabel = if (rotationOn) "Auto-rotate" else "Locked")
+        RuntimeTile("rotation", "Rotation", Icons.Default.ScreenRotation, compact = true, active = rotationOn, secondaryLabel = if (rotationOn) "Auto-rotate" else "Locked")
     )
 
     fun activate(tile: RuntimeTile) {
@@ -320,13 +320,13 @@ private fun Pixel17RuntimeShade(
                         Column(Modifier.weight(1f)) {
                             Text(
                                 systemStatus.time,
-                                style = if (qsExpansion < .5f) MaterialTheme.typography.headlineSmall else MaterialTheme.typography.displaySmall,
+                                style = if (qsExpansion < .5f) MaterialTheme.typography.titleLarge else MaterialTheme.typography.headlineLarge,
                                 fontWeight = FontWeight.Medium,
                                 color = headerText
                             )
                             Text(
                                 systemStatus.date,
-                                style = if (qsExpansion < .5f) MaterialTheme.typography.bodyMedium else MaterialTheme.typography.bodyLarge,
+                                style = MaterialTheme.typography.bodyMedium,
                                 color = palette.secondaryText
                             )
                         }
@@ -513,63 +513,91 @@ private fun RuntimeQuickSettingsMorph(
 ) {
     val context = LocalContext.current
     val progress = expansion.coerceIn(0f, 1f)
-    val compactSize = 56.dp
-    val compactHeight = 56.dp
-    val compactCorner = 16.dp
+    val collapsedSize = 56.dp
+    val collapsedHeight = 56.dp
+    val collapsedCorner = 18.dp
     val gap = 8.dp
-    val expandedHeight = tileHeight.coerceIn(44.dp, 96.dp)
-    val expandedCorner = PixelShadeConfig.tileCornerDp(context).coerceIn(20f, 24f).dp
+    val wideHeight = tileHeight.coerceIn(56.dp, 88.dp)
+    val expandedCorner = PixelShadeConfig.tileCornerDp(context).coerceIn(22f, 28f).dp
     val brushes = pixelShadeTileBrushes(context, palette.activeTile, palette.inactiveTile)
 
-    BoxWithConstraints(
-        Modifier.fillMaxWidth().height(interpolateShadeDp(compactHeight, expandedHeight * 3 + gap * 2, progress))
-    ) {
-        val compactCellWidth = (maxWidth.value / 4f).dp
-        val expandedWidth = ((maxWidth.value - gap.value) / 2f).dp
-        tiles.take(6).forEachIndexed { index, tile ->
-            val tileProgress = if (index < 4) progress else ((progress - .42f) / .58f).coerceIn(0f, 1f)
-            val row = index / 2
-            val column = index % 2
-            val expandedX = if (column == 0) 0.dp else expandedWidth + gap
-            val expandedY = (expandedHeight + gap) * row
-            val compactX = if (index < 4) {
-                compactCellWidth * index + (compactCellWidth - compactSize) / 2f
-            } else {
-                expandedX
-            }
-            val compactY = if (index < 4) 0.dp else expandedY
-            val width = interpolateShadeDp(compactSize, expandedWidth, tileProgress)
-            val height = interpolateShadeDp(compactSize, expandedHeight, tileProgress)
-            val shape = RoundedCornerShape(interpolateShadeDp(compactCorner, expandedCorner, tileProgress))
-            val foreground = if (tile.active) palette.activeIcon else palette.inactiveIcon
-            val brush = if (tile.active) brushes.active else brushes.inactive
+    BoxWithConstraints(Modifier.fillMaxWidth()) {
+        val collapsedCellWidth = (maxWidth.value / 4f).dp
+        val wideWidth = ((maxWidth.value - gap.value) / 2f).dp
+        val secondarySize = ((maxWidth.value - gap.value * 3f) / 4f).dp
+            .coerceIn(56.dp, 72.dp)
+        val secondaryRowWidth = secondarySize * 4f + gap * 3f
+        val secondaryStart = (maxWidth - secondaryRowWidth) / 2f
+        val expandedTotalHeight = wideHeight + gap + secondarySize
 
-            Box(
-                Modifier.offset(
-                    x = interpolateShadeDp(compactX, expandedX, tileProgress),
-                    y = interpolateShadeDp(compactY, expandedY, tileProgress)
-                ).width(width).height(height)
-                    .graphicsLayer { alpha = if (index < 4) 1f else tileProgress }
-            ) {
+        Box(
+            Modifier.fillMaxWidth()
+                .height(interpolateShadeDp(collapsedHeight, expandedTotalHeight, progress))
+        ) {
+            tiles.take(6).forEachIndexed { index, tile ->
+                val tileProgress = if (index < 4) progress else ((progress - .38f) / .62f).coerceIn(0f, 1f)
+                val wideTile = index < 2
+                val targetWidth = if (wideTile) wideWidth else secondarySize
+                val targetHeight = if (wideTile) wideHeight else secondarySize
+                val targetX = if (wideTile) {
+                    if (index == 0) 0.dp else wideWidth + gap
+                } else {
+                    secondaryStart + (secondarySize + gap) * (index - 2).toFloat()
+                }
+                val targetY = if (wideTile) 0.dp else wideHeight + gap
+                val collapsedX = if (index < 4) {
+                    collapsedCellWidth * index.toFloat() + (collapsedCellWidth - collapsedSize) / 2f
+                } else {
+                    targetX
+                }
+                val collapsedY = if (index < 4) 0.dp else targetY
+                val width = interpolateShadeDp(collapsedSize, targetWidth, tileProgress)
+                val height = interpolateShadeDp(collapsedSize, targetHeight, tileProgress)
+                val shape = RoundedCornerShape(interpolateShadeDp(collapsedCorner, expandedCorner, tileProgress))
+                val foreground = if (tile.active) palette.activeIcon else palette.inactiveIcon
+                val brush = if (tile.active) brushes.active else brushes.inactive
+                val targetIconX = if (wideTile) 16.dp else (targetWidth - 24.dp) / 2f
+                val collapsedIconX = (collapsedSize - 24.dp) / 2f
+
                 Box(
-                    Modifier.fillMaxSize().clip(shape).background(brush).clickable { onClick(tile) }
+                    Modifier.offset(
+                        x = interpolateShadeDp(collapsedX, targetX, tileProgress),
+                        y = interpolateShadeDp(collapsedY, targetY, tileProgress)
+                    ).width(width).height(height)
+                        .graphicsLayer { alpha = if (index < 4) 1f else tileProgress }
                 ) {
-                    val iconX = interpolateShadeDp(((width.value - 24f) / 2f).dp, 16.dp, tileProgress)
-                    Icon(
-                        tile.icon,
-                        tile.label,
-                        Modifier.offset(x = iconX, y = (height - 24.dp) / 2f).size(24.dp),
-                        tint = foreground
-                    )
-                    if (!hideText) {
-                        Column(
-                            Modifier.align(Alignment.CenterStart).padding(start = 52.dp, end = 8.dp)
-                                .graphicsLayer { alpha = tileProgress },
-                            verticalArrangement = Arrangement.spacedBy(1.dp)
-                        ) {
-                            Text(tile.label, style = MaterialTheme.typography.labelLarge, color = if (tile.active) foreground else textColor, maxLines = 1)
-                            if (tile.secondaryLabel.isNotBlank()) {
-                                Text(tile.secondaryLabel, style = MaterialTheme.typography.labelSmall, color = if (tile.active) foreground.copy(alpha = .8f) else palette.secondaryText, maxLines = 1)
+                    Box(
+                        Modifier.fillMaxSize().clip(shape).background(brush).clickable { onClick(tile) }
+                    ) {
+                        Icon(
+                            tile.icon,
+                            tile.label,
+                            Modifier.offset(
+                                x = interpolateShadeDp(collapsedIconX, targetIconX, tileProgress),
+                                y = (height - 24.dp) / 2f
+                            ).size(24.dp),
+                            tint = foreground
+                        )
+                        if (wideTile && !hideText) {
+                            Column(
+                                Modifier.align(Alignment.CenterStart).padding(start = 52.dp, end = 10.dp)
+                                    .graphicsLayer { alpha = progress },
+                                verticalArrangement = Arrangement.spacedBy(1.dp)
+                            ) {
+                                Text(
+                                    tile.label,
+                                    style = MaterialTheme.typography.labelLarge,
+                                    color = if (tile.active) foreground else textColor,
+                                    maxLines = 1
+                                )
+                                if (tile.secondaryLabel.isNotBlank()) {
+                                    Text(
+                                        tile.secondaryLabel,
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = if (tile.active) foreground.copy(alpha = .8f) else palette.secondaryText,
+                                        maxLines = 1
+                                    )
+                                }
                             }
                         }
                     }
@@ -578,7 +606,6 @@ private fun RuntimeQuickSettingsMorph(
         }
     }
 }
-
 @Composable
 internal fun Pixel17RuntimeShadePreview(modifier: Modifier = Modifier) {
     val context = LocalContext.current
@@ -588,11 +615,11 @@ internal fun Pixel17RuntimeShadePreview(modifier: Modifier = Modifier) {
     val tileText = PixelShadeThemeEngine.resolvedColor(context, PixelShadeThemeEngine.KEY_TILE_TEXT, palette.primaryText)
     val tiles = listOf(
         RuntimeTile("wifi", "Wi-Fi", Icons.Default.Wifi, active = true, secondaryLabel = "Connected"),
-        RuntimeTile("bluetooth", "Bluetooth", Icons.Default.Bluetooth, active = false, secondaryLabel = "Off"),
-        RuntimeTile("flashlight", "Flashlight", Icons.Default.FlashlightOn, active = false, secondaryLabel = "Off"),
-        RuntimeTile("dnd", "Modes", Icons.Default.DoNotDisturbOn, active = false, secondaryLabel = "Off"),
-        RuntimeTile("mobile", "Mobile data", Icons.Default.SwapVert, active = true, secondaryLabel = "On"),
-        RuntimeTile("rotation", "Rotation", Icons.Default.ScreenRotation, active = true, secondaryLabel = "Auto-rotate")
+        RuntimeTile("mobile", "Mobile data", Icons.Default.SignalCellularAlt, active = true, secondaryLabel = "On"),
+        RuntimeTile("bluetooth", "Bluetooth", Icons.Default.Bluetooth, compact = true, active = false, secondaryLabel = "Off"),
+        RuntimeTile("flashlight", "Flashlight", Icons.Default.FlashlightOn, compact = true, active = false, secondaryLabel = "Off"),
+        RuntimeTile("dnd", "Modes", Icons.Default.DoNotDisturbOn, compact = true, active = false, secondaryLabel = "Off"),
+        RuntimeTile("rotation", "Rotation", Icons.Default.ScreenRotation, compact = true, active = true, secondaryLabel = "Auto-rotate")
     )
 
     Surface(
@@ -670,42 +697,42 @@ private fun RuntimeBrightness(value: Float, palette: PixelShadePalette, onValueC
     val context = LocalContext.current
     val track = palette.brightnessTrack
     val progressColor = PixelShadeThemeEngine.resolvedColor(context, PixelShadeThemeEngine.KEY_SLIDER_PROGRESS, palette.brightnessFill)
-    val thumbColor = PixelShadeThemeEngine.resolvedColor(context, PixelShadeThemeEngine.KEY_SLIDER_THUMB, palette.brightnessFill)
     val iconColor = PixelShadeThemeEngine.resolvedColor(context, PixelShadeThemeEngine.KEY_SLIDER_ICON, palette.activeIcon)
     val fraction = value.coerceIn(.01f, 1f)
     val shape = RoundedCornerShape(28.dp)
 
-    Row(Modifier.fillMaxWidth().height(56.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-        BoxWithConstraints(
-            modifier = Modifier.weight(1f).fillMaxHeight().clip(shape).background(track)
-                .pointerInput(Unit) {
-                    detectTapGestures { offset ->
-                        if (size.width > 0) onValueChange((offset.x / size.width.toFloat()).coerceIn(.01f, 1f))
-                    }
+    BoxWithConstraints(
+        modifier = Modifier.fillMaxWidth().height(56.dp).clip(shape).background(track)
+            .pointerInput(Unit) {
+                detectTapGestures { offset ->
+                    if (size.width > 0) onValueChange((offset.x / size.width.toFloat()).coerceIn(.01f, 1f))
                 }
-                .pointerInput(Unit) {
-                    detectHorizontalDragGestures(
-                        onDragStart = { offset ->
-                            if (size.width > 0) onValueChange((offset.x / size.width.toFloat()).coerceIn(.01f, 1f))
-                        },
-                        onHorizontalDrag = { change, _ ->
-                            if (size.width > 0) onValueChange((change.position.x / size.width.toFloat()).coerceIn(.01f, 1f))
-                            change.consume()
-                        }
-                    )
-                }
-        ) {
-            Box(Modifier.fillMaxHeight().fillMaxWidth(fraction).background(progressColor))
-            Box(
-                Modifier.align(Alignment.CenterStart).padding(start = 14.dp).size(26.dp)
-                    .background(thumbColor.copy(alpha = .82f), CircleShape),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(Icons.Default.Brightness6, "Brightness", Modifier.size(16.dp), tint = iconColor)
             }
-        }
-        Surface(Modifier.width(52.dp).fillMaxHeight().clickable(onClick = onSettings), shape = RoundedCornerShape(20.dp), color = palette.inactiveTile) {
-            Box(contentAlignment = Alignment.Center) { Icon(Icons.Default.Settings, "Settings", tint = palette.inactiveIcon) }
+            .pointerInput(Unit) {
+                detectHorizontalDragGestures(
+                    onDragStart = { offset ->
+                        if (size.width > 0) onValueChange((offset.x / size.width.toFloat()).coerceIn(.01f, 1f))
+                    },
+                    onHorizontalDrag = { change, _ ->
+                        if (size.width > 0) onValueChange((change.position.x / size.width.toFloat()).coerceIn(.01f, 1f))
+                        change.consume()
+                    }
+                )
+            }
+    ) {
+        Box(Modifier.fillMaxHeight().fillMaxWidth(fraction).background(progressColor))
+        Row(
+            Modifier.fillMaxSize().padding(start = 16.dp, end = 8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(Icons.Default.Brightness6, "Brightness", Modifier.size(20.dp), tint = iconColor)
+            Spacer(Modifier.weight(1f))
+            IconButton(
+                onClick = onSettings,
+                modifier = Modifier.size(40.dp).background(palette.panel.copy(alpha = .62f), CircleShape)
+            ) {
+                Icon(Icons.Default.Settings, "Display settings", Modifier.size(20.dp), tint = palette.primaryText)
+            }
         }
     }
 }
