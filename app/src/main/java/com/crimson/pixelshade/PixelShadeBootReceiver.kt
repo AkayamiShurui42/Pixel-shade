@@ -17,12 +17,18 @@ class PixelShadeBootReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         val supportedAction = intent.action == Intent.ACTION_BOOT_COMPLETED ||
             intent.action == Intent.ACTION_MY_PACKAGE_REPLACED
-        if (!supportedAction || !PixelShadeRuntime.isEnabled(context)) return
+        val runtimeEnabled = PixelShadeRuntime.isEnabled(context)
+        val recoveryPending = PixelShadeRuntime.statusBarWasDisabled(context)
+        if (!supportedAction || (!runtimeEnabled && !recoveryPending)) return
 
         runCatching {
             ContextCompat.startForegroundService(
                 context,
-                Intent(context, PixelShadeTriggerService::class.java)
+                Intent(context, PixelShadeTriggerService::class.java).apply {
+                    if (!runtimeEnabled && recoveryPending) {
+                        action = PixelShadeTriggerService.ACTION_RECOVER_STOCK_SHADE
+                    }
+                }
             )
         }
     }
