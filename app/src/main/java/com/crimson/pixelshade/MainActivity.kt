@@ -355,7 +355,8 @@ private fun PixelShadeSetup(
                 operationMessage = "Pixel Shade could not start, so Android's notification shade was not disabled."
             }
         }
-    }    Scaffold(topBar = { CenterAlignedTopAppBar(title = { Text("Pixel Shade") }) }) { padding ->
+    }
+    Scaffold(topBar = { CenterAlignedTopAppBar(title = { Text("Pixel Shade") }) }) { padding ->
         Column(
             Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState()).padding(horizontal = 18.dp, vertical = 12.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp)
