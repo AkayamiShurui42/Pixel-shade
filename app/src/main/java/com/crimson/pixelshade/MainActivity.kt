@@ -284,6 +284,45 @@ private fun PixelShadeSetup(
         }
     }
 
+    fun startRuntimeOnly() {
+        if (activationPending || PixelShadeRuntime.isEnabled(context)) return
+
+        when {
+            configuredOverlayTrigger && !overlayGranted -> {
+                operationMessage = "Your configured side or bottom handles require Display over apps permission."
+                setupExpanded = true
+                return
+            }
+            !accessibility && !overlayGranted -> {
+                operationMessage = "Enable Accessibility or Display over apps first so Pixel Shade can attach a working replacement trigger."
+                setupExpanded = true
+                return
+            }
+        }
+
+        PixelShadeRuntime.setEnabled(context, true)
+        triggerEnabled = true
+        operationMessage = if (shizukuGranted) {
+            "Pixel Shade runtime enabled. Stock shade suppression remains off until you explicitly enable it."
+        } else {
+            "Pixel Shade runtime enabled. Shizuku is not connected or authorized, so Android's stock shade remains available."
+        }
+
+        val serviceStarted = runCatching {
+            ContextCompat.startForegroundService(
+                context,
+                Intent(context, PixelShadeTriggerService::class.java)
+            )
+        }.isSuccess
+
+        if (!serviceStarted) {
+            PixelShadeRuntime.setEnabled(context, false)
+            triggerEnabled = false
+            operationMessage = "Pixel Shade could not start its trigger service."
+        }
+        refresh++
+    }
+
     fun startReplacement() {
         if (activationPending) return
         when {
@@ -400,7 +439,7 @@ private fun PixelShadeSetup(
                     Switch(
                         checked = triggerEnabled,
                         onCheckedChange = { enabled ->
-                            if (enabled) showEnableWarning = true else stopReplacement()
+                            if (enabled) startRuntimeOnly() else stopReplacement()
                         }
                     )
                 }
@@ -540,6 +579,8 @@ private fun PixelShadeSetup(
                     }
                 }
             }
+
+            ShizukuDiagnosticsSection()
 
             SettingsExpansionCard(
                 title = "Stock shade control",
