@@ -12,6 +12,7 @@ import android.os.Build
 import android.os.Bundle
 import android.os.PowerManager
 import android.provider.Settings
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
@@ -120,6 +121,8 @@ private fun PixelShadeSetup(
     var operationMessage by remember { mutableStateOf<String?>(null) }
     var setupExpanded by remember { mutableStateOf(false) }
     var oxygenExpanded by remember { mutableStateOf(false) }
+    var diagnosticsExpanded by remember { mutableStateOf(false) }
+    var diagnosticReport by remember { mutableStateOf<PixelShadeDiagnosticReport?>(null) }
     val notifLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { refresh++ }
 
     DisposableEffect(lifecycleOwner) {
@@ -181,6 +184,31 @@ private fun PixelShadeSetup(
     val disabledPluginPackage = OplusQsPluginControl.packageDisabledByUs(context)
     val suppressionRequested = PixelShadeConfig.suppressStockShade(context)
     val suppressionSafe = StatusBarSuppression.canSafelyBlock(context)
+    val diagnosticsInput = PixelShadeDiagnosticInput(
+        appVersion = context.packageManager.getPackageInfo(context.packageName, 0).versionName ?: "unknown",
+        manufacturer = Build.MANUFACTURER.orEmpty(),
+        deviceModel = Build.MODEL.orEmpty(),
+        androidVersion = Build.VERSION.RELEASE.orEmpty(),
+        sdkInt = Build.VERSION.SDK_INT,
+        triggerEnabled = triggerEnabled,
+        triggerServiceRunning = PixelShadeTriggerService.isRunning(),
+        accessibilityConnected = PixelShadeAccessibilityService.isConnected(),
+        overlayPermission = overlayGranted,
+        optionalEdgeTriggersEnabled = PixelShadeConfig.bottomEnabled(context) ||
+            PixelShadeConfig.leftEnabled(context) || PixelShadeConfig.rightEnabled(context),
+        notificationPermissionGranted = notificationGranted,
+        notificationAccess = notificationAccess,
+        notificationsEnabled = PixelShadeConfig.showNotifications(context),
+        brightnessEnabled = PixelShadeConfig.brightnessEnabled(context),
+        writeSettingsPermission = writeSettings,
+        batteryOptimizationExempt = batteryExempt,
+        shadeSuppressionRequested = suppressionRequested,
+        shizukuConnected = shizukuRunning,
+        shizukuPermissionGranted = shizukuGranted,
+        suppressionSafe = suppressionSafe,
+        suppressionApplied = PixelShadeRuntime.statusBarWasDisabled(context),
+        backendLastResult = StatusBarSuppression.lastResult(context)
+    )
 
     fun setServiceEnabled(enabled: Boolean) {
         triggerEnabled = enabled
@@ -244,6 +272,61 @@ private fun PixelShadeSetup(
                     HubCategory("Advanced", Icons.Default.Build) { onOpenEditor(PixelShadeEditorTab.ADVANCED) }
                     HubCategory("Preview", Icons.Default.Visibility, onPreview)
                 }
+            }
+
+            SettingsExpansionCard(
+                title = "Error finder & report",
+                subtitle = diagnosticReport?.let {
+                    if (it.issueCount == 0) "No setup issues found" else "${it.issueCount} potential issue${if (it.issueCount == 1) "" else "s"} found"
+                } ?: "Check permissions and create a support report",
+                expanded = diagnosticsExpanded,
+                onToggle = { diagnosticsExpanded = !diagnosticsExpanded }
+            ) {
+                diagnosticReport?.checks?.forEach { check ->
+                    Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                        val color = when (check.status) {
+                            PixelShadeDiagnostic.Status.OK -> MaterialTheme.colorScheme.primary
+                            PixelShadeDiagnostic.Status.WARNING -> MaterialTheme.colorScheme.tertiary
+                            PixelShadeDiagnostic.Status.ERROR -> MaterialTheme.colorScheme.error
+                        }
+                        Text("${check.status.name}: ${check.name}", style = MaterialTheme.typography.titleSmall, color = color)
+                        Text(check.detail, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    FilledTonalButton(
+                        onClick = {
+                            diagnosticReport = PixelShadeDiagnostics.inspect(
+                                diagnosticsInput.copy(
+                                    triggerServiceRunning = PixelShadeTriggerService.isRunning(),
+                                    backendLastResult = StatusBarSuppression.lastResult(context)
+                                )
+                            )
+                        },
+                        modifier = Modifier.weight(1f)
+                    ) { Text("Find errors") }
+                    OutlinedButton(
+                        enabled = diagnosticReport != null,
+                        onClick = {
+                            val report = diagnosticReport ?: return@OutlinedButton
+                            runCatching {
+                                val shareIntent = Intent(Intent.ACTION_SEND)
+                                    .setType("text/plain")
+                                    .putExtra(Intent.EXTRA_SUBJECT, "Pixel Shade diagnostic report")
+                                    .putExtra(Intent.EXTRA_TEXT, report.toShareableText())
+                                context.startActivity(Intent.createChooser(shareIntent, "Share diagnostic report"))
+                            }.onFailure {
+                                Toast.makeText(context, "Could not open the share sheet", Toast.LENGTH_SHORT).show()
+                            }
+                        },
+                        modifier = Modifier.weight(1f)
+                    ) { Text("Share report") }
+                }
+                Text(
+                    "The report includes the app version, device model/OS, and setup checks only. It never includes notification contents or logs.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
             }
 
             HorizontalDivider()

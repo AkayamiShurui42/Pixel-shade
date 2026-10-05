@@ -3,6 +3,61 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose")
 }
 
+val shizukuPlusRoot = file("../third_party/shizuku-plus")
+val shizukuPlusAars = mapOf(
+    "shizuku-plus-aidl.aar" to "aidl/build/outputs/aar/aidl-release.aar",
+    "shizuku-plus-shared.aar" to "shared/build/outputs/aar/shared-release.aar",
+    "shizuku-plus-api.aar" to "api/build/outputs/aar/api-release.aar",
+    "shizuku-plus-provider.aar" to "provider/build/outputs/aar/provider-release.aar"
+)
+
+val windows = System.getProperty("os.name").lowercase().contains("windows")
+val shizukuPlusGradlew = File(shizukuPlusRoot, if (windows) "gradlew.bat" else "gradlew")
+val buildShizukuPlusAars = tasks.register<Exec>("buildShizukuPlusAars") {
+    workingDir = shizukuPlusRoot
+    commandLine(
+        if (windows) {
+            listOf("cmd", "/c", shizukuPlusGradlew.absolutePath)
+        } else {
+            listOf("bash", shizukuPlusGradlew.absolutePath)
+        } + listOf(
+            "--no-daemon",
+            ":aidl:assembleRelease",
+            ":shared:assembleRelease",
+            ":api:assembleRelease",
+            ":provider:assembleRelease"
+        )
+    )
+    onlyIf {
+        val missingArtifacts = shizukuPlusAars.values.filter { !File(shizukuPlusRoot, it).exists() }
+        if (missingArtifacts.isNotEmpty() && !shizukuPlusGradlew.exists()) {
+            throw GradleException("Missing vendored Shizuku Plus Gradle wrapper at ${shizukuPlusGradlew.absolutePath}")
+        }
+        missingArtifacts.isNotEmpty()
+    }
+}
+
+val stageShizukuPlusAars = tasks.register("stageShizukuPlusAars") {
+    dependsOn(buildShizukuPlusAars)
+    doLast {
+        val outputDir = file("libs")
+        outputDir.mkdirs()
+        shizukuPlusAars.forEach { (name, relativePath) ->
+            val source = File(shizukuPlusRoot, relativePath)
+            if (!source.exists()) {
+                throw GradleException("Missing Shizuku Plus AAR: ${source.absolutePath}. Build the vendored client first.")
+            }
+            copy {
+                from(source)
+                into(outputDir)
+                rename { name }
+            }
+        }
+    }
+}
+
+tasks.named("preBuild") { dependsOn(stageShizukuPlusAars) }
+
 val ciRunNumber = System.getenv("GITHUB_RUN_NUMBER")?.toIntOrNull()
 
 android {

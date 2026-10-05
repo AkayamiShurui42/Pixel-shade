@@ -38,6 +38,7 @@ Unless the user explicitly changes direction, preserve these decisions:
 - Preserve working OxygenOS shade suppression and Shizuku/Shizuku+ integration while changing presentation code.
 - Stock-shade suppression must not depend on disabling all of SystemUI.
 - Runtime status values should be live rather than fixed placeholders.
+- Diagnostic reports must remain limited to setup/device-version data and sanitized backend status; do not include notification contents or raw logs.
 - Editor settings must affect the runtime shade.
 - Device behavior and screenshots outrank assumptions based on a desktop/editor preview.
 
@@ -53,6 +54,7 @@ Important files under `app/src/main/java/com/crimson/pixelshade/`:
 - `PixelShadeTriggerService.kt`: standalone foreground-service/application-overlay trigger.
 - `PixelShadeAccessibilityService.kt`: accessibility overlay and accessibility-backed actions.
 - `PixelShadeRuntime.kt`: runtime enablement and routing helpers.
+- `PixelShadeDiagnostics.kt`: setup/runtime health checks and a privacy-limited shareable support report, including trigger-service state and sanitized Shizuku backend status.
 - `PixelShadeBootReceiver.kt`: trigger restoration after reboot or package replacement when Pixel Shade remains enabled.
 - `PixelShadeNotificationListener.kt`: notification capture, opening, dismissal and actions.
 - `RuntimeSystemStatus.kt`: live time/date/network/battery/charging state.
