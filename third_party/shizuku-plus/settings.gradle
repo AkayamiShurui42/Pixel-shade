@@ -47,6 +47,4 @@ dependencyResolutionManagement {
     }
 }
 
-include ":aidl", ":shared", ":api", ":provider", ":rish"
-include ":demo", ":demo-hidden-api-stub"
-include ":server-shared"
+include ":aidl", ":shared", ":api", ":provider"

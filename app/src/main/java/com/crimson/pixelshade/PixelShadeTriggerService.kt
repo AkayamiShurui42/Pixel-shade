@@ -12,6 +12,12 @@ import kotlin.math.abs
 import kotlin.math.roundToInt
 
 class PixelShadeTriggerService : Service() {
+    companion object {
+        @Volatile private var activeService: PixelShadeTriggerService? = null
+
+        fun isRunning(): Boolean = activeService != null
+    }
+
     private lateinit var wm: WindowManager
     private val triggers = mutableListOf<View>()
 
@@ -29,6 +35,7 @@ class PixelShadeTriggerService : Service() {
         StatusBarSuppression.restoreIfNeeded(this)
         StatusBarSuppression.sync(this)
         rebuildTriggers()
+        activeService = this
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -275,6 +282,7 @@ class PixelShadeTriggerService : Service() {
             StatusBarSuppression.setExpansionDisabled(this, false)
         }
         PixelShadeAccessibilityService.requestTriggerRefresh()
+        if (activeService === this) activeService = null
         super.onDestroy()
     }
 
