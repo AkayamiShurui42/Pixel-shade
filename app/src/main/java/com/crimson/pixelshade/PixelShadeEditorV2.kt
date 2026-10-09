@@ -78,7 +78,6 @@ fun PixelShadeEditorV2(
     var brightnessGesture by remember { mutableStateOf(PixelShadeConfig.brightnessEnabled(context)) }
     var brightnessSensitivity by remember { mutableFloatStateOf(PixelShadeConfig.brightnessSensitivity(context)) }
 
-    var suppressStock by remember { mutableStateOf(PixelShadeConfig.suppressStockShade(context)) }
     var vibrateOnTouch by remember { mutableStateOf(PixelShadeConfig.vibrateOnTouch(context)) }
     var autoCloseTile by remember { mutableStateOf(PixelShadeConfig.autoCloseTile(context)) }
 
@@ -98,6 +97,7 @@ fun PixelShadeEditorV2(
     var onlyMedia by remember { mutableStateOf(PixelShadeConfig.onlyMediaNotifications(context)) }
     var removeNotificationSpacing by remember { mutableStateOf(PixelShadeConfig.removeNotificationSpacing(context)) }
     var autoExpandNotifications by remember { mutableStateOf(PixelShadeConfig.autoExpandNotifications(context)) }
+
     var autoCloseAfterClear by remember { mutableStateOf(PixelShadeConfig.autoCloseAfterClear(context)) }
 
     var openDuration by remember { mutableFloatStateOf(PixelShadeConfig.openDurationMs(context).toFloat()) }
@@ -198,10 +198,10 @@ fun PixelShadeEditorV2(
             .putFloat(PixelShadeConfig.KEY_RIGHT_HEIGHT_DP, rightHeight)
             .putFloat(PixelShadeConfig.KEY_RIGHT_Y_PERCENT, rightY)
             .putBoolean(PixelShadeConfig.KEY_HIDE_HANDLE_ICON, hideHandleIcon)
+
             .putBoolean(PixelShadeConfig.KEY_HIDE_IN_LANDSCAPE, hideLandscape)
             .putBoolean(PixelShadeConfig.KEY_BRIGHTNESS_ENABLED, brightnessGesture)
             .putFloat(PixelShadeConfig.KEY_BRIGHTNESS_SENSITIVITY, brightnessSensitivity)
-            .putBoolean(PixelShadeConfig.KEY_SUPPRESS_STOCK_SHADE, suppressStock)
             .putBoolean(PixelShadeConfig.KEY_VIBRATE_ON_TOUCH, vibrateOnTouch)
             .putBoolean(PixelShadeConfig.KEY_AUTO_CLOSE_TILE, autoCloseTile)
             .putFloat(PixelShadeConfig.KEY_PANEL_OPACITY, opacity)
@@ -253,7 +253,6 @@ fun PixelShadeEditorV2(
 
         context.startService(Intent(context, PixelShadeTriggerService::class.java).setAction("com.crimson.pixelshade.REFRESH_CONFIG"))
         PixelShadeAccessibilityService.requestTriggerRefresh()
-        StatusBarSuppression.sync(context)
     }
 
     fun resetDefaults() {
@@ -280,7 +279,6 @@ fun PixelShadeEditorV2(
         hideLandscape = false
         brightnessGesture = true
         brightnessSensitivity = 1f
-        suppressStock = true
         vibrateOnTouch = true
         autoCloseTile = false
         opacity = 1f
@@ -298,6 +296,7 @@ fun PixelShadeEditorV2(
         onlyMedia = false
         removeNotificationSpacing = false
         autoExpandNotifications = true
+
         autoCloseAfterClear = false
         openDuration = 320f
         closeDuration = 220f
@@ -325,7 +324,7 @@ fun PixelShadeEditorV2(
     ) { padding ->
         Column(Modifier.fillMaxSize().padding(padding)) {
             Text(
-                "Trigger placement canvas · drag a handle or its resize grips. Open the live shade preview below to inspect the real runtime surface.",
+                "Trigger placement canvas - drag a handle or its resize grips. Open the live shade preview below to inspect the real runtime surface.",
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -391,13 +390,14 @@ fun PixelShadeEditorV2(
                     PixelShadeEditorTab.HANDLE -> {
                         EditorSection("Trigger handles", Icons.Default.SwipeDown) {
                             Text(
-                                "Top, bottom, left and right swipe triggers all open with a downward sweep. Bottom can alternatively use double tap. Hiding the handle icon keeps the touch target active.",
+                                "Top and side handles pull down; the bottom handle swipes up or uses double tap. Hiding the handle icon keeps the touch target active.",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                             EditorSwitch("Hide handle icon", hideHandleIcon) { hideHandleIcon = it }
                             EditorSwitch("Hide handles in landscape", hideLandscape) { hideLandscape = it }
                             HorizontalDivider()
+
                             Text("Top handle", style = MaterialTheme.typography.titleSmall)
                             EditorSlider("Touch height", triggerHeight, 1f..120f, "${triggerHeight.roundToInt()} dp") { triggerHeight = it; visibleHeight = visibleHeight.coerceAtMost(it) }
                             EditorSlider("Visible strip", visibleHeight, 0f..24f, "${visibleHeight.roundToInt()} dp") { visibleHeight = it.coerceAtMost(triggerHeight) }
@@ -414,14 +414,14 @@ fun PixelShadeEditorV2(
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
-                                val bottomModes = listOf(BottomTriggerActivation.DOUBLE_TAP, BottomTriggerActivation.SWIPE_DOWN)
+                                val bottomModes = listOf(BottomTriggerActivation.DOUBLE_TAP, BottomTriggerActivation.SWIPE_UP)
                                 SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
                                     bottomModes.forEachIndexed { index, mode ->
                                         SegmentedButton(
                                             selected = bottomActivation == mode,
                                             onClick = { bottomActivation = mode },
                                             shape = SegmentedButtonDefaults.itemShape(index, bottomModes.size)
-                                        ) { Text(if (mode == BottomTriggerActivation.DOUBLE_TAP) "Double tap" else "Swipe down") }
+                                        ) { Text(if (mode == BottomTriggerActivation.DOUBLE_TAP) "Double tap" else "Swipe up") }
                                     }
                                 }
                                 EditorSlider("Length", bottomWidth, 10f..100f, "${bottomWidth.roundToInt()}%") { bottomWidth = it }
@@ -448,7 +448,7 @@ fun PixelShadeEditorV2(
                     }
 
                     PixelShadeEditorTab.LAYOUT -> {
-                        EditorSection("Pixel 17 layout", Icons.Default.DashboardCustomize) {
+                        EditorSection("Android 17 Pixel layout", Icons.Default.DashboardCustomize) {
                             Text(
                                 "Live runtime preview",
                                 style = MaterialTheme.typography.titleSmall,
@@ -498,6 +498,7 @@ fun PixelShadeEditorV2(
                             SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
                                 PixelShadeThemeEngine.Mode.entries.forEachIndexed { index, mode ->
                                     SegmentedButton(
+
                                         selected = themeMode == mode,
                                         onClick = { themeMode = mode },
                                         shape = SegmentedButtonDefaults.itemShape(index, PixelShadeThemeEngine.Mode.entries.size)
@@ -551,12 +552,12 @@ fun PixelShadeEditorV2(
                                 Text("Enabled tile gradient", style = MaterialTheme.typography.titleSmall)
                                 HexColorEditor("Gradient color start", activeGradientStartHex) { activeGradientStartHex = it }
                                 HexColorEditor("Gradient color end", activeGradientEndHex) { activeGradientEndHex = it }
-                                EditorSlider("Direction", activeGradientDirection, 0f..360f, "${activeGradientDirection.roundToInt()}°") { activeGradientDirection = it }
+                                EditorSlider("Direction", activeGradientDirection, 0f..360f, "${activeGradientDirection.roundToInt()} degrees") { activeGradientDirection = it }
                                 HorizontalDivider()
                                 Text("Disabled tile gradient", style = MaterialTheme.typography.titleSmall)
                                 HexColorEditor("Gradient color start", inactiveGradientStartHex) { inactiveGradientStartHex = it }
                                 HexColorEditor("Gradient color end", inactiveGradientEndHex) { inactiveGradientEndHex = it }
-                                EditorSlider("Direction", inactiveGradientDirection, 0f..360f, "${inactiveGradientDirection.roundToInt()}°") { inactiveGradientDirection = it }
+                                EditorSlider("Direction", inactiveGradientDirection, 0f..360f, "${inactiveGradientDirection.roundToInt()} degrees") { inactiveGradientDirection = it }
                             }
                             Text(
                                 "The reference app also offers an icon-shape selector. Pixel Shade keeps that control hidden for now because the Pixel compact/wide/custom tile geometry does not yet have one consistent icon-container shape to modify.",
@@ -598,12 +599,15 @@ fun PixelShadeEditorV2(
 
                     PixelShadeEditorTab.ADVANCED -> {
                         EditorSection("System integration", Icons.Default.Build) {
-                            EditorSwitch("Block OxygenOS stock shade", suppressStock) { suppressStock = it }
+
                             Text(
-                                "Safety behavior: this request is only applied when Shizuku is granted and Pixel Shade has a usable accessibility or overlay trigger. Otherwise the stock shade remains available.",
+                                "Stock-shade control is kept on the main setup screen because it runs a privileged shell command and requires an explicit warning.",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
+                            OutlinedButton(onClick = onClose, modifier = Modifier.fillMaxWidth()) {
+                                Text("Open stock shade controls")
+                            }
                             EditorSwitch("Vibrate on successful handle gesture", vibrateOnTouch) { vibrateOnTouch = it }
                             EditorSwitch("Auto close after tapping a Quick Settings tile", autoCloseTile) { autoCloseTile = it }
                             Text(
@@ -703,8 +707,9 @@ private fun PhoneHandleEditorCanvas(
                 val topHeight = scaledY(triggerHeight).coerceAtLeast(9.dp)
                 val topStart = centeredStart(topX, topLength, maxWidth)
                 PhoneHandleRegion(
+
                     modifier = Modifier.offset(x = topStart, y = scaledY(offset)).width(topLength).height(topHeight),
-                    label = "TOP  ↓ open",
+                    label = "TOP - swipe down",
                     enabled = true,
                     selected = selectedHandle == EditorHandle.TOP,
                     runtimeStripVisible = !hideRuntimeStrip,
@@ -725,7 +730,7 @@ private fun PhoneHandleEditorCanvas(
                 val bottomStart = centeredStart(bottomX, bottomLength, maxWidth)
                 PhoneHandleRegion(
                     modifier = Modifier.align(Alignment.BottomStart).offset(x = bottomStart, y = -bottomHeightPreview - 22.dp).width(bottomLength).height(bottomHeightPreview),
-                    label = "BOTTOM  ↑ open",
+                    label = "BOTTOM - swipe up",
                     enabled = bottomEnabled,
                     selected = selectedHandle == EditorHandle.BOTTOM,
                     runtimeStripVisible = !hideRuntimeStrip,
@@ -745,7 +750,7 @@ private fun PhoneHandleEditorCanvas(
                 val leftWidthPreview = scaledX(leftWidth).coerceAtLeast(9.dp)
                 PhoneHandleRegion(
                     modifier = Modifier.offset(y = centeredStart(leftY, leftHeightPreview, maxHeight)).width(leftWidthPreview).height(leftHeightPreview),
-                    label = "LEFT  ↑ open",
+                    label = "LEFT - swipe down",
                     enabled = leftEnabled,
                     selected = selectedHandle == EditorHandle.LEFT,
                     runtimeStripVisible = false,
@@ -764,7 +769,7 @@ private fun PhoneHandleEditorCanvas(
                 val rightWidthPreview = scaledX(rightWidth).coerceAtLeast(9.dp)
                 PhoneHandleRegion(
                     modifier = Modifier.align(Alignment.TopEnd).offset(y = centeredStart(rightY, rightHeightPreview, maxHeight)).width(rightWidthPreview).height(rightHeightPreview),
-                    label = "RIGHT  ↑ open",
+                    label = "RIGHT - swipe down",
                     enabled = rightEnabled,
                     selected = selectedHandle == EditorHandle.RIGHT,
                     runtimeStripVisible = false,
@@ -781,7 +786,7 @@ private fun PhoneHandleEditorCanvas(
             }
         }
         Text(
-            "Selected: ${selectedHandle.name.lowercase().replaceFirstChar { it.uppercase() }} · outlines remain visible here even when runtime strips are hidden.",
+            "Selected: ${selectedHandle.name.lowercase().replaceFirstChar { it.uppercase() }} - outlines remain visible here even when runtime strips are hidden.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
@@ -803,6 +808,7 @@ private fun PhoneHandleRegion(
     val shape = RoundedCornerShape(6.dp)
     Box(
         modifier
+
             .clip(shape)
             .background(if (enabled && runtimeStripVisible) accent.copy(alpha = .22f) else accent.copy(alpha = .08f))
             .border(if (selected) 2.dp else 1.dp, if (selected) accent else accent.copy(alpha = .65f), shape)

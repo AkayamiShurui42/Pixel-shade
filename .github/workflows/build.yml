@@ -30,46 +30,9 @@ jobs:
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v6
-        with:
-          gradle-version: '9.3.1'
 
-      - name: Limit vendored client API modules
-        working-directory: third_party/shizuku-plus
-        run: |
-          python3 - <<'PY'
-          from pathlib import Path
-          p = Path('settings.gradle')
-          s = p.read_text()
-          s = s.replace('include ":aidl", ":shared", ":api", ":provider", ":rish"', 'include ":aidl", ":shared", ":api", ":provider"')
-          s = s.replace('include ":demo", ":demo-hidden-api-stub"', '')
-          s = s.replace('include ":server-shared"', '')
-          p.write_text(s)
-          PY
-
-      - name: Build vendored Shizuku Plus client AARs
-        working-directory: third_party/shizuku-plus
-        run: |
-          chmod +x gradlew
-          ./gradlew --no-daemon :aidl:assembleRelease :shared:assembleRelease :api:assembleRelease :provider:assembleRelease --stacktrace
-
-      - name: Stage Shizuku Plus AARs
-        run: |
-          mkdir -p app/libs
-          cp third_party/shizuku-plus/aidl/build/outputs/aar/aidl-release.aar app/libs/shizuku-plus-aidl.aar
-          cp third_party/shizuku-plus/shared/build/outputs/aar/shared-release.aar app/libs/shizuku-plus-shared.aar
-          cp third_party/shizuku-plus/api/build/outputs/aar/api-release.aar app/libs/shizuku-plus-api.aar
-          cp third_party/shizuku-plus/provider/build/outputs/aar/provider-release.aar app/libs/shizuku-plus-provider.aar
-
-      - name: Restore stable debug signing key
-        run: |
-          base64 --decode ci/pixelshade-debug.keystore.b64 > app/pixelshade-debug.keystore
-          keytool -list -storetype JKS -keystore app/pixelshade-debug.keystore -storepass pixelshade-debug -alias pixelshade-debug >/dev/null
-
-      - name: Run Pixel Shade unit tests
-        run: gradle --no-daemon :app:testDebugUnitTest --stacktrace
-
-      - name: Build standalone Pixel Shade APK
-        run: gradle --no-daemon :app:assembleDebug --stacktrace
+      - name: Build and test Pixel Shade
+        run: bash scripts/build-debug.sh
 
       - name: Verify Pixel Shade APK
         run: |
