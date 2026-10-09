@@ -25,6 +25,7 @@ class PixelShadeTriggerService : Service() {
         const val RESULT_ACTIVATION_OK = 1
         const val RESULT_ACTIVATION_FAILED = 0
         const val RESULT_DETAIL = "detail"
+        private const val RECOVERY_CHANNEL_ID = "pixel_shade_recovery"
 
         @Volatile private var instance: PixelShadeTriggerService? = null
         @Volatile private var registeredTrigger = false
@@ -165,22 +166,31 @@ class PixelShadeTriggerService : Service() {
     }
 
     private fun recoverStockShade(receiver: ResultReceiver?, reason: String) {
-        if (PixelShadeRuntime.statusBarWasDisabled(this)) PixelShadeRuntime.setEnabled(this, true)
+        val pluginPackage = OplusQsPluginControl.packageDisabledByUs(this)
+        if (PixelShadeRuntime.statusBarWasDisabled(this) || pluginPackage != null) {
+            PixelShadeRuntime.setEnabled(this, true)
+        }
         rebuildTriggers(forceOverlayTop = true)
         updateServiceNotification("Restoring Android's notification shade")
-        StatusBarSuppression.restore(this) { restored, detail ->
-            if (restored) {
-                PixelShadeRuntime.setEnabled(this, false)
-                rebuildTriggers()
-                sendActivationResult(receiver, false, "$reason. $detail")
-                stopSelf()
-            } else {
-                updateServiceNotification("Recovery needed - open Pixel Shade or use ADB")
-                sendActivationResult(
-                    receiver,
-                    false,
-                    "$reason. $detail. Recovery: ${StatusBarSuppression.ADB_RECOVERY_COMMAND}"
-                )
+        StatusBarSuppression.restore(this) { stockRestored, detail ->
+            OplusQsPluginControl.restore(this) { pluginRestored ->
+                if (stockRestored && pluginRestored) {
+                    PixelShadeRuntime.setEnabled(this, false)
+                    rebuildTriggers()
+                    sendActivationResult(receiver, false, "$reason. $detail. OEM Quick Settings was restored.")
+                    stopSelf()
+                } else {
+                    val currentPlugin = OplusQsPluginControl.packageDisabledByUs(this)
+                    val pluginRecovery = currentPlugin?.let {
+                        " Enable it with: adb shell pm enable --user 0 $it"
+                    }.orEmpty()
+                    updateServiceNotification("Recovery needed - tap Restore Android shade")
+                    sendActivationResult(
+                        receiver,
+                        false,
+                        "$reason. $detail.$pluginRecovery Stock-shade recovery: ${StatusBarSuppression.ADB_RECOVERY_COMMAND}"
+                    )
+                }
             }
         }
     }
@@ -494,12 +504,28 @@ class PixelShadeTriggerService : Service() {
             Intent(this, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
-        return Notification.Builder(this, "pixel_shade")
+        val restoreShade = PendingIntent.getService(
+            this,
+            1718,
+            Intent(this, PixelShadeTriggerService::class.java).setAction(ACTION_RECOVER_STOCK_SHADE),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        return Notification.Builder(this, RECOVERY_CHANNEL_ID)
             .setSmallIcon(android.R.drawable.stat_sys_download_done)
             .setContentTitle("Pixel Shade active")
             .setContentText(text)
             .setContentIntent(openSettings)
+            .setCategory(Notification.CATEGORY_SERVICE)
+            .setVisibility(Notification.VISIBILITY_PUBLIC)
+            .setOnlyAlertOnce(true)
             .setOngoing(true)
+            .addAction(
+                Notification.Action.Builder(
+                    android.R.drawable.ic_menu_revert,
+                    "Restore Android shade",
+                    restoreShade
+                ).build()
+            )
             .build()
     }
 
@@ -509,7 +535,13 @@ class PixelShadeTriggerService : Service() {
 
     private fun createChannel() {
         (getSystemService(NOTIFICATION_SERVICE) as NotificationManager).createNotificationChannel(
-            NotificationChannel("pixel_shade", "Pixel Shade", NotificationManager.IMPORTANCE_MIN)
+            NotificationChannel(
+                RECOVERY_CHANNEL_ID,
+                "Pixel Shade recovery",
+                NotificationManager.IMPORTANCE_LOW
+            ).apply {
+                description = "Keeps the stock-shade restore control visible while Pixel Shade is active"
+            }
         )
     }
 

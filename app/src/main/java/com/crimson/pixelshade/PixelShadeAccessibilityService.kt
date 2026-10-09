@@ -46,7 +46,9 @@ class PixelShadeAccessibilityService : AccessibilityService() {
         if (accessibilityReady || overlayFallbackReady) {
             StatusBarSuppression.sync(this)
         } else if (PixelShadeRuntime.isEnabled(this) && !PixelShadeConfig.triggersAllowedInCurrentConfiguration(this)) {
-            StatusBarSuppression.restoreTemporarily(this)
+            StatusBarSuppression.restoreTemporarily(this) { restored, _ ->
+                if (!restored) PixelShadeTriggerService.requestStockShadeRecovery(this)
+            }
         } else if (PixelShadeRuntime.isEnabled(this)) {
             PixelShadeTriggerService.requestStockShadeRecovery(this)
         } else {
@@ -173,6 +175,8 @@ class PixelShadeAccessibilityService : AccessibilityService() {
                 if (restored) {
                     rebuildTopTrigger()
                     PixelShadeTriggerService.requestTriggerRefresh()
+                } else {
+                    PixelShadeTriggerService.requestStockShadeRecovery(this)
                 }
             }
             return
@@ -189,7 +193,9 @@ class PixelShadeAccessibilityService : AccessibilityService() {
     private fun handleLostTopTrigger() {
         if (!PixelShadeRuntime.isEnabled(this)) return
         if (!PixelShadeConfig.triggersAllowedInCurrentConfiguration(this)) {
-            StatusBarSuppression.restoreTemporarily(this)
+            StatusBarSuppression.restoreTemporarily(this) { restored, _ ->
+                if (!restored) PixelShadeTriggerService.requestStockShadeRecovery(this)
+            }
         } else if (!PixelShadeTriggerService.requestTriggerRefresh()) {
             PixelShadeTriggerService.requestStockShadeRecovery(this)
         }

@@ -19,13 +19,14 @@ class PixelShadeBootReceiver : BroadcastReceiver() {
             intent.action == Intent.ACTION_MY_PACKAGE_REPLACED
         val runtimeEnabled = PixelShadeRuntime.isEnabled(context)
         val recoveryPending = PixelShadeRuntime.statusBarWasDisabled(context)
-        if (!supportedAction || (!runtimeEnabled && !recoveryPending)) return
+        val pluginRecoveryPending = OplusQsPluginControl.packageDisabledByUs(context) != null
+        if (!supportedAction || (!runtimeEnabled && !recoveryPending && !pluginRecoveryPending)) return
 
         runCatching {
             ContextCompat.startForegroundService(
                 context,
                 Intent(context, PixelShadeTriggerService::class.java).apply {
-                    if (!runtimeEnabled && recoveryPending) {
+                    if (!runtimeEnabled && (recoveryPending || pluginRecoveryPending)) {
                         action = PixelShadeTriggerService.ACTION_RECOVER_STOCK_SHADE
                     }
                 }

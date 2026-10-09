@@ -288,6 +288,12 @@ private fun PixelShadeSetup(
         if (activationPending || PixelShadeRuntime.isEnabled(context)) return
 
         when {
+            !notificationGranted -> {
+                operationMessage = "Allow notifications first so Pixel Shade can keep a visible recovery control while it is active."
+                setupExpanded = true
+                if (Build.VERSION.SDK_INT >= 33) notifLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                return
+            }
             configuredOverlayTrigger && !overlayGranted -> {
                 operationMessage = "Your configured side or bottom handles require Display over apps permission."
                 setupExpanded = true
@@ -331,6 +337,12 @@ private fun PixelShadeSetup(
                 setupExpanded = true
                 return
             }
+            !notificationGranted -> {
+                operationMessage = "Allow notifications first so the ongoing recovery control stays visible while Android's shade is disabled."
+                setupExpanded = true
+                if (Build.VERSION.SDK_INT >= 33) notifLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                return
+            }
             configuredOverlayTrigger && !overlayGranted -> {
                 operationMessage = "Your configured side or bottom handles require Display over apps permission."
                 setupExpanded = true
@@ -358,7 +370,7 @@ private fun PixelShadeSetup(
                     success -> "$detail. Restore it before uninstalling Pixel Shade."
                     PixelShadeRuntime.statusBarWasDisabled(context) ->
                         "$detail. Pixel Shade is staying active because Android's shade may still be disabled."
-                    else -> "$detail. Pixel Shade did not take ownership of the stock pull-down."
+                    else -> "$detail. Pixel Shade did not disable the stock pull-down."
                 }
                 if (!success && !PixelShadeRuntime.isEnabled(context)) {
                     context.stopService(Intent(context, PixelShadeTriggerService::class.java))
@@ -377,14 +389,18 @@ private fun PixelShadeSetup(
         }.isSuccess
         if (!serviceStarted) {
             activationPending = false
-            if (PixelShadeRuntime.statusBarWasDisabled(context)) {
+            if (
+                PixelShadeRuntime.statusBarWasDisabled(context) ||
+                OplusQsPluginControl.packageDisabledByUs(context) != null
+            ) {
                 operationMessage = "Pixel Shade could not start its trigger service; restoring Android's shade now..."
                 StatusBarSuppression.restore(context) { restored, detail ->
-                    if (restored) {
-                        PixelShadeRuntime.setEnabled(context, false)
-                        triggerEnabled = false
+                    operationMessage = if (restored) {
+                        detail
+                    } else {
+                        "$detail. Keep Pixel Shade open or use ADB recovery."
                     }
-                    operationMessage = if (restored) detail else "$detail. Keep Pixel Shade open or use ADB recovery."
+                    if (restored) finishAfterOemRestore()
                     refresh++
                 }
             } else {
@@ -584,7 +600,7 @@ private fun PixelShadeSetup(
 
             SettingsExpansionCard(
                 title = "Stock shade control",
-                subtitle = if (PixelShadeRuntime.statusBarWasDisabled(context)) "Android notification shade disabled" else "Android notification shade available",
+                subtitle = if (PixelShadeRuntime.statusBarWasDisabled(context)) "Stock-shade recovery is armed" else "Android notification shade available",
                 expanded = oxygenExpanded,
                 onToggle = { oxygenExpanded = !oxygenExpanded }
             ) {
@@ -702,8 +718,10 @@ private fun PixelShadeSetup(
             text = {
                 Text(
                     "Pixel Shade will use Shizuku to run the same privileged shell command available through ADB and block the normal notification-shade pull-down system-wide. " +
-                        "Pixel Shade first verifies its own top, side, or bottom trigger, then uses that trigger to replace the pull-down. Uninstalling directly from Android settings may leave the stock shade disabled; always use Pixel Shade's restore-first uninstall action. " +
-                        "Emergency recovery: ${StatusBarSuppression.ADB_RECOVERY_COMMAND}"
+                        "Pixel Shade first verifies its own top, side, or bottom trigger, then uses that trigger to replace the pull-down. Android exposes these ADB status-bar flags through shared shell state, so restoring with none can also clear flags set by another ADB/Shizuku tool. " +
+                        "Keep notifications allowed so the foreground recovery control remains visible. " +
+                        (if (batteryExempt) "Battery optimization exemption is active. " else "Battery optimization is not exempt; OxygenOS may stop background recovery, so granting the exemption is strongly recommended. ") +
+                        "Uninstalling directly from Android settings may leave the stock shade disabled; always use Pixel Shade's restore-first uninstall action. Emergency recovery: ${StatusBarSuppression.ADB_RECOVERY_COMMAND}"
                 )
             },
             confirmButton = {

@@ -50,7 +50,8 @@ object StatusBarSuppression {
     private const val VERIFY_TIMEOUT_MS = 2_000L
     private const val COLLAPSE_TIMEOUT_MS = 200L
     private const val PANEL_LAUNCH_BUDGET_MS = 250L
-    private const val DISABLE_EXPAND_MASK = 0x00010000L
+    private const val PROCESS_TERMINATION_TIMEOUT_MS = 1_000L
+    private const val RESTORE_STABILITY_DELAY_MS = 350L
     private const val PREF_LAST_RESULT = "statusbar_last_result"
 
     private val mutationExecutor = Executors.newSingleThreadExecutor { runnable ->
@@ -60,18 +61,19 @@ object StatusBarSuppression {
         Thread(runnable, "PixelShade-Collapse").apply { isDaemon = true }
     }
     private val main = Handler(Looper.getMainLooper())
-    private val disabled1Pattern = Regex("mDisabled1=0x([0-9a-fA-F]+)")
 
     private data class ShellOutcome(
         val exitCode: Int,
         val output: String = "",
         val error: String = "",
-        val timedOut: Boolean = false
+        val timedOut: Boolean = false,
+        val terminationConfirmed: Boolean = true
     ) {
         val success: Boolean get() = !timedOut && exitCode == 0
         val failureDetail: String
             get() = when {
-                timedOut -> "Command timed out"
+                !terminationConfirmed -> "Command stopped responding and its termination could not be confirmed"
+                timedOut -> "Command timed out after its process was stopped"
                 error.isNotBlank() -> error
                 output.isNotBlank() -> output
                 else -> "Command failed with exit code $exitCode"
@@ -100,7 +102,8 @@ object StatusBarSuppression {
             runtimeEnabled = PixelShadeRuntime.isEnabled(context),
             requested = PixelShadeConfig.suppressStockShade(context),
             armed = PixelShadeConfig.suppressionArmed(context),
-            triggerReady = hasVerifiedTrigger()
+            triggerReady = PixelShadeConfig.triggersAllowedInCurrentConfiguration(context) &&
+                hasVerifiedTrigger()
         )
 
     fun sync(context: Context) {
@@ -220,6 +223,16 @@ object StatusBarSuppression {
             return
         }
 
+        if (!result.terminationConfirmed) {
+            publish(
+                app,
+                "The stock-shade command entered an uncertain state. Pixel Shade is keeping its recovery marker, trigger, and foreground service active. Open recovery controls or run: $ADB_RECOVERY_COMMAND",
+                onComplete,
+                false
+            )
+            return
+        }
+
         val reason = when {
             !result.success -> result.failureDetail
             !triggerStillReady -> "Pixel Shade lost its verified trigger while disabling the stock shade"
@@ -233,8 +246,15 @@ object StatusBarSuppression {
         reason: String,
         onComplete: ((Boolean, String) -> Unit)?
     ) {
-        val recovery = executeBounded(StatusBarSuppressionPolicy.restoreCommand(), COMMAND_TIMEOUT_MS)
-        val restored = recovery.success && verifyExpansionState(expectedDisabled = false) == Verification.MATCH
+        val firstRecovery = executeBounded(StatusBarSuppressionPolicy.restoreCommand(), COMMAND_TIMEOUT_MS)
+        val recovery = if (firstRecovery.terminationConfirmed) {
+            // A second idempotent restore closes the late-completion window after a
+            // failed/timed-out disable and is verified again after a short delay.
+            executeBounded(StatusBarSuppressionPolicy.restoreCommand(), COMMAND_TIMEOUT_MS)
+        } else {
+            firstRecovery
+        }
+        val restored = firstRecovery.terminationConfirmed && recovery.success && verifyRestoredStably() == Verification.MATCH
         val detail = if (restored) {
             PixelShadeRuntime.setStatusBarDisabledMarker(app, false)
             "$reason. Android's notification shade was restored automatically"
@@ -255,7 +275,7 @@ object StatusBarSuppression {
 
         val result = executeBounded(StatusBarSuppressionPolicy.restoreCommand(), COMMAND_TIMEOUT_MS)
         val verification = if (result.success) {
-            verifyExpansionState(expectedDisabled = false)
+            verifyRestoredStably()
         } else {
             Verification.UNAVAILABLE
         }
@@ -280,12 +300,21 @@ object StatusBarSuppression {
     private fun verifyExpansionState(expectedDisabled: Boolean): Verification {
         val dump = executeBounded(arrayOf("dumpsys", "statusbar"), VERIFY_TIMEOUT_MS)
         if (!dump.success) return Verification.UNAVAILABLE
-        val flags = disabled1Pattern.findAll(dump.output)
-            .mapNotNull { it.groupValues.getOrNull(1)?.toLongOrNull(16) }
-            .toList()
-        if (flags.isEmpty()) return Verification.UNAVAILABLE
-        val actualDisabled = flags.any { it and DISABLE_EXPAND_MASK != 0L }
+        val actualDisabled = StatusBarStateVerifier.expansionDisabled(dump.output)
+            ?: return Verification.UNAVAILABLE
         return if (actualDisabled == expectedDisabled) Verification.MATCH else Verification.MISMATCH
+    }
+
+    private fun verifyRestoredStably(): Verification {
+        val first = verifyExpansionState(expectedDisabled = false)
+        if (first != Verification.MATCH) return first
+        try {
+            Thread.sleep(RESTORE_STABILITY_DELAY_MS)
+        } catch (_: InterruptedException) {
+            Thread.currentThread().interrupt()
+            return Verification.UNAVAILABLE
+        }
+        return verifyExpansionState(expectedDisabled = false)
     }
 
     fun collapsePanels(context: Context, onComplete: () -> Unit) {
@@ -318,19 +347,36 @@ object StatusBarSuppression {
             val stdoutThread = streamDrainer(remoteProcess.inputStream, output, "PixelShade-shell-stdout")
             val stderrThread = streamDrainer(remoteProcess.errorStream, error, "PixelShade-shell-stderr")
             val finished = remoteProcess.waitForTimeout(timeoutMs, TimeUnit.MILLISECONDS)
-            if (!finished) runCatching { remoteProcess.destroy() }
+            val terminationConfirmed = finished || terminateAndConfirm(remoteProcess)
             stdoutThread.join(500L)
             stderrThread.join(500L)
             if (finished) {
                 ShellOutcome(remoteProcess.exitValue(), output.toString().trim(), error.toString().trim())
             } else {
-                ShellOutcome(-1, output.toString().trim(), "Command timed out", timedOut = true)
+                ShellOutcome(
+                    -1,
+                    output.toString().trim(),
+                    "Command timed out",
+                    timedOut = true,
+                    terminationConfirmed = terminationConfirmed
+                )
             }
         } catch (failure: Throwable) {
-            ShellOutcome(-1, error = failure.message ?: "Command failed")
+            ShellOutcome(
+                -1,
+                error = failure.message ?: "Command failed",
+                terminationConfirmed = process?.let(::terminateAndConfirm) ?: true
+            )
         } finally {
             process?.let { runCatching { it.destroy() } }
         }
+    }
+
+    private fun terminateAndConfirm(process: ShizukuRemoteProcess): Boolean {
+        runCatching { process.destroy() }
+        return runCatching {
+            process.waitForTimeout(PROCESS_TERMINATION_TIMEOUT_MS, TimeUnit.MILLISECONDS) || !process.alive()
+        }.getOrDefault(false)
     }
 
     private fun streamDrainer(stream: InputStream, target: StringBuilder, name: String): Thread =
