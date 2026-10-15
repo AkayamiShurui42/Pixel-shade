@@ -36,7 +36,6 @@ private data class ShizukuSnapshot(
     val permissionGranted: Boolean,
     val uid: Int?,
     val version: Int?,
-    val patch: Int?,
     val selinuxContext: String?,
     val enhancedApi: Boolean,
     val customApi: Boolean
@@ -105,7 +104,6 @@ internal fun ShizukuDiagnosticsSection() {
             DiagnosticLine("Permission", if (snapshot.permissionGranted) "GRANTED" else "DENIED")
             DiagnosticLine("Server UID", snapshot.uid?.toString() ?: "unavailable")
             DiagnosticLine("Server version", snapshot.version?.toString() ?: "unavailable")
-            DiagnosticLine("Server patch", snapshot.patch?.toString() ?: "unavailable")
             DiagnosticLine("SELinux context", snapshot.selinuxContext ?: "unavailable")
             DiagnosticLine("Enhanced API", snapshot.enhancedApi.toString())
             DiagnosticLine("Custom API", snapshot.customApi.toString())
@@ -205,7 +203,6 @@ private fun readShizukuSnapshot(): ShizukuSnapshot {
         permissionGranted = permissionGranted,
         uid = if (binderAlive) runCatching { Shizuku.getUid() }.getOrNull() else null,
         version = if (binderAlive) runCatching { Shizuku.getVersion() }.getOrNull() else null,
-        patch = if (binderAlive) runCatching { Shizuku.getServerPatchVersion() }.getOrNull() else null,
         selinuxContext = if (binderAlive) runCatching { Shizuku.getSELinuxContext() }.getOrNull() else null,
         enhancedApi = binderAlive && runCatching { ShizukuPlusAPI.isEnhancedApiSupported() }.getOrDefault(false),
         customApi = binderAlive && runCatching { Shizuku.isCustomApiEnabled() }.getOrDefault(false)
@@ -224,32 +221,17 @@ private fun runSmokeTests(command: String): String {
 
     val standard = executeStandardShizuku(command)
     val enhancedAvailable = runCatching { ShizukuPlusAPI.isEnhancedApiSupported() }.getOrDefault(false)
-    val enhanced = if (enhancedAvailable) {
-        runCatching {
-            val result = ShizukuPlusAPI.Shell.executeCommand(command)
-            CommandSmokeResult(
-                backend = "Shizuku+ Shell",
-                command = command,
-                exitCode = result.exitCode,
-                stdout = result.output,
-                stderr = result.error
-            )
-        }.getOrElse {
-            CommandSmokeResult("Shizuku+ Shell", command, -1, "", it.message ?: it.javaClass.simpleName)
-        }
+    val enhancedDetail = if (enhancedAvailable) {
+        "Shizuku+ enhanced API detected. Its synchronous shell helper is skipped because it has no bounded process handle."
     } else {
-        null
+        "Shizuku+ enhanced API unavailable."
     }
 
     return buildString {
         append(standard.render())
         appendLine()
         appendLine()
-        if (enhanced != null) {
-            append(enhanced.render())
-        } else {
-            append("Shizuku+ Shell\n$command\nenhanced API unavailable")
-        }
+        append(enhancedDetail)
     }
 }
 

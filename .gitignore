@@ -6,8 +6,8 @@
 /build/
 /artifacts/
 /app/build/
-/artifacts/
 /app/libs/shizuku-plus-*.aar
 /app/pixelshade-debug.keystore
 /third_party/shizuku-plus/**/build/
-/artifacts/
+/third_party/shizuku-plus/.gradle/
+/third_party/shizuku-plus/.kotlin/

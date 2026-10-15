@@ -43,10 +43,14 @@ From the repository root, run:
 bash scripts/build-debug.sh
 ```
 
-That command limits the vendored Shizuku checkout to the four client modules, builds and stages their AARs, runs the unit tests, and assembles Pixel Shade. The APK is written to:
+That command limits the vendored Shizuku checkout to the four client modules, builds and stages their AARs, runs unit tests and Android lint, and assembles Pixel Shade. On native Termux it automatically reuses Termux's ARM-compatible `aapt2` for both the Shizuku and Pixel Shade resource stages. The APK is written to:
 
 ```text
 app/build/outputs/apk/debug/app-debug.apk
 ```
 
-The root wrapper is pinned to Gradle 9.3.1 with the official distribution checksum; the vendored Shizuku wrapper remains pinned to Gradle 8.14 with its checksum. The build script uses client-only Shizuku project configuration without rewriting tracked files, restores the stable debug signing key, and is the same entry point GitHub Actions uses before publishing the APK artifact.
+Every build receives an epoch-minute version code so a newer local artifact can update an earlier CI artifact and vice versa. Reproducible automation may supply an explicit code with `-PpixelShadeVersionCode=<value>`.
+
+The root Gradle distribution is pinned to 9.3.1 with the official distribution checksum; the vendored Shizuku wrapper remains pinned to Gradle 8.14 with its checksum. The build script uses client-only Shizuku project configuration without rewriting tracked files, restores the stable development signing key, and is the same entry point GitHub Actions uses before publishing the APK artifact. CI verifies the expected signing-certificate digest so an accidental key change cannot silently break update compatibility.
+
+The checked-in signing key and debug APK are for development and target-device testing only. A public production release must use a protected release key and a non-debuggable release build.

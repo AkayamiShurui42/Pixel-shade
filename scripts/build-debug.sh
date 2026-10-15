@@ -23,6 +23,29 @@ do
     }
 done
 
+ROOT_GRADLE_ARGS=(
+    --no-daemon
+    "--max-workers=${PIXEL_SHADE_MAX_WORKERS:-1}"
+    --stacktrace
+)
+
+AAPT2="${AAPT2_OVERRIDE:-}"
+if [[ -z "$AAPT2" && -n "${TERMUX_VERSION:-}" ]]; then
+    AAPT2=$(command -v aapt2 || true)
+    [[ -n "$AAPT2" ]] || {
+        printf 'Pixel Shade build: native Termux requires its ARM-compatible aapt2 package.\n' >&2
+        exit 1
+    }
+fi
+if [[ -n "$AAPT2" ]]; then
+    [[ -x "$AAPT2" ]] || {
+        printf 'Pixel Shade build: AAPT2 override is not executable: %s\n' "$AAPT2" >&2
+        exit 1
+    }
+    export AAPT2_OVERRIDE="$AAPT2"
+    ROOT_GRADLE_ARGS+=("-Pandroid.aapt2FromMavenOverride=$AAPT2")
+fi
+
 bash "$ROOT_DIR/scripts/stage-shizuku.sh"
 
 KEYSTORE="$ROOT_DIR/app/pixelshade-debug.keystore"
@@ -37,10 +60,10 @@ keytool -list \
     -storepass pixelshade-debug \
     -alias pixelshade-debug >/dev/null
 
-"$ROOT_DIR/gradlew" --no-daemon \
+bash "$ROOT_DIR/gradlew" "${ROOT_GRADLE_ARGS[@]}" \
     :app:testDebugUnitTest \
-    :app:assembleDebug \
-    --stacktrace
+    :app:lintDebug \
+    :app:assembleDebug
 
 APK="$ROOT_DIR/app/build/outputs/apk/debug/app-debug.apk"
 test -s "$APK"

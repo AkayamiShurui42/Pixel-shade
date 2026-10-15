@@ -49,7 +49,10 @@ private enum class Screen { HOME, EDITOR, TILES }
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        if (PixelShadeRuntime.isEnabled(this)) {
+        RecoveryNotificationGuard.ensureChannel(this)
+        if (requestPendingRecovery(this)) {
+            // The foreground recovery owner handles both stock and OEM state.
+        } else if (PixelShadeRuntime.isEnabled(this)) {
             val restarted = runCatching {
                 ContextCompat.startForegroundService(this, Intent(this, PixelShadeTriggerService::class.java))
             }.isSuccess
@@ -63,6 +66,24 @@ class MainActivity : ComponentActivity() {
         }
         setContent { PixelShadeRoot() }
     }
+}
+
+private fun requestPendingRecovery(context: Context): Boolean {
+    val pending = PixelShadeRuntime.statusBarWasDisabled(context) ||
+        OplusQsPluginControl.packageDisabledByUs(context) != null
+    val recovering = pending &&
+        (!PixelShadeRuntime.isEnabled(context) || !PixelShadeConfig.suppressionArmed(context))
+    if (!recovering) return false
+
+    if (!PixelShadeTriggerService.requestStockShadeRecovery(context)) {
+        // Last-resort in-process recovery if Android refuses to start the
+        // foreground owner. Both operations retain their durable markers when
+        // restoration cannot be verified.
+        StatusBarSuppression.restore(context) { _, _ ->
+            OplusQsPluginControl.restore(context)
+        }
+    }
+    return true
 }
 
 @Composable
@@ -142,7 +163,9 @@ private fun PixelShadeSetup(
         val lifecycleObserver = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
                 triggerEnabled = PixelShadeRuntime.isEnabled(context)
-                if (triggerEnabled) {
+                if (requestPendingRecovery(context)) {
+                    operationMessage = "Pixel Shade is restoring Android's shade and OEM Quick Settings state."
+                } else if (triggerEnabled) {
                     val triggerReady = PixelShadeTriggerService.hasWorkingTrigger() ||
                         PixelShadeAccessibilityService.hasWorkingTrigger()
                     if (triggerReady) {
@@ -173,7 +196,9 @@ private fun PixelShadeSetup(
         }
         lifecycleOwner.lifecycle.addObserver(lifecycleObserver)
         val binderReceived = Shizuku.OnBinderReceivedListener {
-            if (PixelShadeRuntime.isEnabled(context)) {
+            if (requestPendingRecovery(context)) {
+                operationMessage = "Shizuku reconnected; Pixel Shade is retrying recovery."
+            } else if (PixelShadeRuntime.isEnabled(context)) {
                 val triggerReady = PixelShadeTriggerService.hasWorkingTrigger() ||
                     PixelShadeAccessibilityService.hasWorkingTrigger()
                 if (triggerReady) {
@@ -215,8 +240,9 @@ private fun PixelShadeSetup(
     }
     @Suppress("UNUSED_EXPRESSION") refresh
 
-    val notificationGranted = Build.VERSION.SDK_INT < 33 ||
+    val postNotificationPermissionGranted = Build.VERSION.SDK_INT < 33 ||
         ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
+    val notificationGranted = RecoveryNotificationGuard.isRecoveryControlVisible(context)
     val overlayGranted = Settings.canDrawOverlays(context)
     val writeSettings = Settings.System.canWrite(context)
     val shizukuRunning = runCatching { Shizuku.pingBinder() }.getOrDefault(false)
@@ -541,7 +567,11 @@ private fun PixelShadeSetup(
                 onToggle = { setupExpanded = !setupExpanded }
             ) {
                 PermissionRow("Notifications", notificationGranted) {
-                    if (Build.VERSION.SDK_INT >= 33) notifLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                    if (Build.VERSION.SDK_INT >= 33 && !postNotificationPermissionGranted) {
+                        notifLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                    } else {
+                        runCatching { context.startActivity(RecoveryNotificationGuard.settingsIntent(context)) }
+                    }
                 }
                 PermissionRow("Notification access", notificationAccess) {
                     context.startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))

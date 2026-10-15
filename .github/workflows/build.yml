@@ -41,7 +41,10 @@ jobs:
           unzip -t "$APK" >/dev/null
           APKSIGNER=$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)
           test -n "$APKSIGNER"
-          "$APKSIGNER" verify --verbose --print-certs "$APK"
+          EXPECTED_SIGNER=1051c7ece6bbf686f9c3491580ed985311217b22944e22ac1907ee316e6149f1
+          VERIFY_OUTPUT=$("$APKSIGNER" verify --verbose --print-certs "$APK")
+          printf '%s\n' "$VERIFY_OUTPUT"
+          grep -Fqx "Signer #1 certificate SHA-256 digest: $EXPECTED_SIGNER" <<<"$VERIFY_OUTPUT"
           sha256sum "$APK"
 
       - name: Upload Pixel Shade APK

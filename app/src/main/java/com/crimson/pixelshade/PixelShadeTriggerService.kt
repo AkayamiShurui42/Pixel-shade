@@ -25,7 +25,7 @@ class PixelShadeTriggerService : Service() {
         const val RESULT_ACTIVATION_OK = 1
         const val RESULT_ACTIVATION_FAILED = 0
         const val RESULT_DETAIL = "detail"
-        private const val RECOVERY_CHANNEL_ID = "pixel_shade_recovery"
+        private const val RECOVERY_RETRY_MS = 15_000L
 
         @Volatile private var instance: PixelShadeTriggerService? = null
         @Volatile private var registeredTrigger = false
@@ -56,11 +56,27 @@ class PixelShadeTriggerService : Service() {
     private lateinit var wm: WindowManager
     private val triggers = mutableListOf<View>()
     private val mainHandler = Handler(Looper.getMainLooper())
+    @Volatile private var recoveryInProgress = false
     @Volatile private var rebuildingTriggers = false
+    private val recoveryRetry = Runnable {
+        if (recoveryRequested()) {
+            recoverStockShade(null, "Pixel Shade retried a pending stock-shade recovery")
+        }
+    }
+    private val notificationSafetyCheck = object : Runnable {
+        override fun run() {
+            if (privilegedStatePending() &&
+                !RecoveryNotificationGuard.isRecoveryControlVisible(this@PixelShadeTriggerService)
+            ) {
+                recoverStockShade(null, "Recovery notifications were disabled while Pixel Shade was active")
+            }
+            mainHandler.postDelayed(this, RECOVERY_RETRY_MS)
+        }
+    }
     private val shizukuBinderReceived = Shizuku.OnBinderReceivedListener {
         mainHandler.post {
             when {
-                !PixelShadeRuntime.isEnabled(this) && PixelShadeRuntime.statusBarWasDisabled(this) ->
+                recoveryRequested() ->
                     recoverStockShade(null, "Shizuku reconnected while stock-shade recovery was pending")
                 !PixelShadeRuntime.isEnabled(this) -> stopSelf()
                 !PixelShadeConfig.triggersAllowedInCurrentConfiguration(this) ->
@@ -80,9 +96,10 @@ class PixelShadeTriggerService : Service() {
         super.onCreate()
         instance = this
         wm = getSystemService(WINDOW_SERVICE) as WindowManager
-        createChannel()
+        RecoveryNotificationGuard.ensureChannel(this)
         startForeground(1717, serviceNotification("Gesture triggers are running"))
         runCatching { Shizuku.addBinderReceivedListenerSticky(shizukuBinderReceived) }
+        mainHandler.postDelayed(notificationSafetyCheck, RECOVERY_RETRY_MS)
     }
 
     override fun onConfigurationChanged(newConfig: Configuration) {
@@ -105,6 +122,14 @@ class PixelShadeTriggerService : Service() {
         val receiver = activationReceiver(intent)
         if (intent?.action == ACTION_RECOVER_STOCK_SHADE) {
             recoverStockShade(receiver, "Pixel Shade opened its recovery service")
+            return START_STICKY
+        }
+        if (privilegedStatePending() && !RecoveryNotificationGuard.isRecoveryControlVisible(this)) {
+            recoverStockShade(receiver, "Pixel Shade recovery notifications are unavailable")
+            return START_STICKY
+        }
+        if (recoveryRequested()) {
+            recoverStockShade(receiver, "Pixel Shade resumed a pending stock-shade recovery")
             return START_STICKY
         }
         if (!PixelShadeRuntime.isEnabled(this)) {
@@ -166,6 +191,12 @@ class PixelShadeTriggerService : Service() {
     }
 
     private fun recoverStockShade(receiver: ResultReceiver?, reason: String) {
+        if (recoveryInProgress) {
+            sendActivationResult(receiver, false, "Stock-shade recovery is already in progress")
+            return
+        }
+        recoveryInProgress = true
+        mainHandler.removeCallbacks(recoveryRetry)
         val pluginPackage = OplusQsPluginControl.packageDisabledByUs(this)
         if (PixelShadeRuntime.statusBarWasDisabled(this) || pluginPackage != null) {
             PixelShadeRuntime.setEnabled(this, true)
@@ -175,11 +206,13 @@ class PixelShadeTriggerService : Service() {
         StatusBarSuppression.restore(this) { stockRestored, detail ->
             OplusQsPluginControl.restore(this) { pluginRestored ->
                 if (stockRestored && pluginRestored) {
+                    recoveryInProgress = false
                     PixelShadeRuntime.setEnabled(this, false)
                     rebuildTriggers()
                     sendActivationResult(receiver, false, "$reason. $detail. OEM Quick Settings was restored.")
                     stopSelf()
                 } else {
+                    recoveryInProgress = false
                     val currentPlugin = OplusQsPluginControl.packageDisabledByUs(this)
                     val pluginRecovery = currentPlugin?.let {
                         " Enable it with: adb shell pm enable --user 0 $it"
@@ -190,6 +223,7 @@ class PixelShadeTriggerService : Service() {
                         false,
                         "$reason. $detail.$pluginRecovery Stock-shade recovery: ${StatusBarSuppression.ADB_RECOVERY_COMMAND}"
                     )
+                    mainHandler.postDelayed(recoveryRetry, RECOVERY_RETRY_MS)
                 }
             }
         }
@@ -245,7 +279,9 @@ class PixelShadeTriggerService : Service() {
         triggers.forEach { runCatching { wm.removeView(it) } }
         triggers.clear()
         registeredTrigger = false
-        if (!PixelShadeRuntime.isEnabled(this) || !PixelShadeConfig.triggersAllowedInCurrentConfiguration(this)) {
+        if (!PixelShadeRuntime.isEnabled(this) ||
+            (!forceOverlayTop && !PixelShadeConfig.triggersAllowedInCurrentConfiguration(this))
+        ) {
             rebuildingTriggers = false
             return false
         }
@@ -510,7 +546,7 @@ class PixelShadeTriggerService : Service() {
             Intent(this, PixelShadeTriggerService::class.java).setAction(ACTION_RECOVER_STOCK_SHADE),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
-        return Notification.Builder(this, RECOVERY_CHANNEL_ID)
+        return Notification.Builder(this, RecoveryNotificationGuard.CHANNEL_ID)
             .setSmallIcon(android.R.drawable.stat_sys_download_done)
             .setContentTitle("Pixel Shade active")
             .setContentText(text)
@@ -533,18 +569,6 @@ class PixelShadeTriggerService : Service() {
         (getSystemService(NOTIFICATION_SERVICE) as NotificationManager).notify(1717, serviceNotification(text))
     }
 
-    private fun createChannel() {
-        (getSystemService(NOTIFICATION_SERVICE) as NotificationManager).createNotificationChannel(
-            NotificationChannel(
-                RECOVERY_CHANNEL_ID,
-                "Pixel Shade recovery",
-                NotificationManager.IMPORTANCE_LOW
-            ).apply {
-                description = "Keeps the stock-shade restore control visible while Pixel Shade is active"
-            }
-        )
-    }
-
     override fun onDestroy() {
         // onDestroy is too late to begin an intentional restore. All normal stop paths
         // restore first; this only schedules a new foreground recovery owner if Android
@@ -554,7 +578,7 @@ class PixelShadeTriggerService : Service() {
         } else {
             false
         }
-        val restartRecovery = PixelShadeRuntime.statusBarWasDisabled(this) && !accessibilityFallbackReady
+        val restartRecovery = privilegedStatePending() && !accessibilityFallbackReady
 
         rebuildingTriggers = true
         triggers.forEach { runCatching { wm.removeView(it) } }
@@ -562,10 +586,20 @@ class PixelShadeTriggerService : Service() {
         registeredTrigger = false
         rebuildingTriggers = false
         if (instance === this) instance = null
+        mainHandler.removeCallbacks(notificationSafetyCheck)
+        mainHandler.removeCallbacks(recoveryRetry)
         runCatching { Shizuku.removeBinderReceivedListener(shizukuBinderReceived) }
         super.onDestroy()
 
         if (restartRecovery) requestStockShadeRecovery(applicationContext)
     }
     override fun onBind(intent: Intent?): IBinder? = null
+
+    private fun privilegedStatePending(): Boolean =
+        PixelShadeRuntime.statusBarWasDisabled(this) ||
+            OplusQsPluginControl.packageDisabledByUs(this) != null
+
+    private fun recoveryRequested(): Boolean =
+        privilegedStatePending() &&
+            (!PixelShadeRuntime.isEnabled(this) || !PixelShadeConfig.suppressionArmed(this))
 }

@@ -102,7 +102,8 @@ object StatusBarSuppression {
             runtimeEnabled = PixelShadeRuntime.isEnabled(context),
             requested = PixelShadeConfig.suppressStockShade(context),
             armed = PixelShadeConfig.suppressionArmed(context),
-            triggerReady = PixelShadeConfig.triggersAllowedInCurrentConfiguration(context) &&
+            triggerReady = RecoveryNotificationGuard.isRecoveryControlVisible(context) &&
+                PixelShadeConfig.triggersAllowedInCurrentConfiguration(context) &&
                 hasVerifiedTrigger()
         )
 
@@ -126,6 +127,15 @@ object StatusBarSuppression {
         val app = context.applicationContext
         if (!hasVerifiedTrigger()) {
             publish(app, "Pixel Shade did not verify a working replacement trigger", onComplete, false)
+            return
+        }
+        if (!RecoveryNotificationGuard.isRecoveryControlVisible(app)) {
+            publish(
+                app,
+                "Enable Pixel Shade recovery notifications before disabling Android's shade",
+                onComplete,
+                false
+            )
             return
         }
         if (!PixelShadeConfig.armStockShadeSuppression(app)) {

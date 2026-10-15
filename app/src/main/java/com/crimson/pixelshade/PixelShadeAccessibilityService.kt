@@ -51,8 +51,10 @@ class PixelShadeAccessibilityService : AccessibilityService() {
             }
         } else if (PixelShadeRuntime.isEnabled(this)) {
             PixelShadeTriggerService.requestStockShadeRecovery(this)
+        } else if (privilegedRecoveryPending()) {
+            requestPrivilegedRecoveryOwner()
         } else {
-            StatusBarSuppression.restoreIfNeeded(this)
+            PixelShadeRuntime.setEnabled(this, false)
         }
     }
 
@@ -214,6 +216,26 @@ class PixelShadeAccessibilityService : AccessibilityService() {
         }
     }
 
+    private fun privilegedRecoveryPending(): Boolean =
+        PixelShadeRuntime.statusBarWasDisabled(this) ||
+            OplusQsPluginControl.packageDisabledByUs(this) != null
+
+    private fun requestPrivilegedRecoveryOwner() {
+        val app = applicationContext
+        if (PixelShadeTriggerService.requestStockShadeRecovery(app)) return
+
+        // Last-resort recovery if Android rejects the foreground-service handoff.
+        // Each privileged controller retains its marker unless its postcondition
+        // is verified, so a failed fallback remains recoverable on the next start.
+        StatusBarSuppression.restore(app) { stockRestored, _ ->
+            OplusQsPluginControl.restore(app) { pluginRestored ->
+                if (stockRestored && pluginRestored) {
+                    PixelShadeRuntime.setEnabled(app, false)
+                }
+            }
+        }
+    }
+
     override fun onDestroy() {
         // Force an application-overlay top trigger before removing the Accessibility
         // overlay. If that handoff is unavailable, a foreground recovery service owns
@@ -228,17 +250,10 @@ class PixelShadeAccessibilityService : AccessibilityService() {
         rebuildingTopTrigger = false
         if (instance === this) instance = null
 
-        if (runtimeEnabled && !fallbackReady) {
-            if (PixelShadeRuntime.statusBarWasDisabled(this)) {
-                val recoveryStarted = PixelShadeTriggerService.requestStockShadeRecovery(this)
-                if (!recoveryStarted) {
-                    StatusBarSuppression.restore(this) { restored, _ ->
-                        if (restored) PixelShadeRuntime.setEnabled(this, false)
-                    }
-                }
-            } else {
-                PixelShadeRuntime.setEnabled(this, false)
-            }
+        if (!fallbackReady && privilegedRecoveryPending()) {
+            requestPrivilegedRecoveryOwner()
+        } else if (runtimeEnabled && !fallbackReady) {
+            PixelShadeRuntime.setEnabled(this, false)
         }
         super.onDestroy()
     }

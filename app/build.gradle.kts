@@ -4,6 +4,14 @@ plugins {
 }
 
 val ciRunNumber = System.getenv("GITHUB_RUN_NUMBER")?.toIntOrNull()
+val buildEpochMinute = (System.currentTimeMillis() / 60_000L).toInt()
+val pixelShadeVersionCode = providers.gradleProperty("pixelShadeVersionCode")
+    .orNull
+    ?.toIntOrNull()
+    ?: (10_000_000 + buildEpochMinute)
+require(pixelShadeVersionCode in 1..2_100_000_000) {
+    "pixelShadeVersionCode must be a valid positive Android version code"
+}
 
 android {
     namespace = "com.crimson.pixelshade"
@@ -13,8 +21,11 @@ android {
         applicationId = "com.crimson.pixelshade"
         minSdk = 26
         targetSdk = 35
-        versionCode = ciRunNumber ?: 1
-        versionName = ciRunNumber?.let { "0.1.0-dev.$it" } ?: "0.1.0-dev"
+        // Epoch-minute codes keep later local and CI builds upgrade-compatible.
+        // Release automation may override this explicitly with -PpixelShadeVersionCode.
+        versionCode = pixelShadeVersionCode
+        versionName = ciRunNumber?.let { "0.1.0-dev.ci.$it" }
+            ?: "0.1.0-dev.local.$buildEpochMinute"
     }
 
     val ciDebugKeystore = file("pixelshade-debug.keystore")
@@ -30,10 +41,14 @@ android {
 
     buildTypes {
         getByName("debug") {
-            if (ciDebugKeystore.exists()) {
-                signingConfig = signingConfigs.getByName("pixelShadeCiDebug")
-            }
+            // Fail closed if the stable development key was not restored by the
+            // canonical build script instead of silently changing signer identity.
+            signingConfig = signingConfigs.getByName("pixelShadeCiDebug")
         }
+    }
+
+    lint {
+        abortOnError = true
     }
 
     buildFeatures { compose = true }
