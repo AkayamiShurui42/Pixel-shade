@@ -1,27 +1,17 @@
 package com.crimson.pixelshade
 
-/**
- * Pure decision logic for the persistent SystemUI expansion disable flag.
- *
- * The stock shade may only be disabled when Pixel Shade is enabled, the user
- * explicitly requested suppression, Shizuku is usable, and at least one
- * replacement trigger path is actually available. This prevents a persistent
- * "no shade at all" state when one of the required runtime pieces is missing.
- */
+/** Pure policy kept separate from Android/Shizuku so the safety contract is unit-testable. */
 internal object StatusBarSuppressionPolicy {
     fun shouldDisable(
-        pixelShadeEnabled: Boolean,
-        suppressionRequested: Boolean,
-        privilegedBackendReady: Boolean,
-        replacementTriggerReady: Boolean
-    ): Boolean =
-        pixelShadeEnabled &&
-            suppressionRequested &&
-            privilegedBackendReady &&
-            replacementTriggerReady
+        runtimeEnabled: Boolean,
+        requested: Boolean,
+        armed: Boolean,
+        triggerReady: Boolean
+    ): Boolean = runtimeEnabled && requested && armed && triggerReady
 
-    fun shouldRestore(
-        markerSet: Boolean,
-        shouldDisableNow: Boolean
-    ): Boolean = markerSet && !shouldDisableNow
+    fun disableCommand(): Array<String> =
+        arrayOf("cmd", "statusbar", "send-disable-flag", "statusbar-expansion")
+
+    fun restoreCommand(): Array<String> =
+        arrayOf("cmd", "statusbar", "send-disable-flag", "none")
 }

@@ -47,6 +47,15 @@ dependencyResolutionManagement {
     }
 }
 
-include ":aidl", ":shared", ":api", ":provider", ":rish"
-include ":demo", ":demo-hidden-api-stub"
-include ":server-shared"
+def pixelShadeClientOnly = providers
+        .gradleProperty("pixelShadeClientOnly")
+        .map { Boolean.parseBoolean(it) }
+        .getOrElse(false)
+
+include ":aidl", ":shared", ":api", ":provider"
+
+if (!pixelShadeClientOnly) {
+    include ":rish"
+    include ":demo", ":demo-hidden-api-stub"
+    include ":server-shared"
+}

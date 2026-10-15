@@ -1,15 +1,18 @@
 package com.crimson.pixelshade
 
 import android.content.Context
+import android.content.res.Configuration
 import android.graphics.Color
 
 enum class BottomTriggerActivation {
     DOUBLE_TAP,
-    SWIPE_DOWN;
+    SWIPE_UP;
 
     companion object {
-        fun fromStored(value: String?): BottomTriggerActivation =
-            values().firstOrNull { it.name == value } ?: DOUBLE_TAP
+        fun fromStored(value: String?): BottomTriggerActivation = when (value) {
+            "SWIPE_DOWN" -> SWIPE_UP // Migrate the original, physically impossible bottom-edge mode.
+            else -> entries.firstOrNull { it.name == value } ?: DOUBLE_TAP
+        }
     }
 }
 
@@ -54,6 +57,7 @@ object PixelShadeConfig {
     const val KEY_GESTURE_DEAD_ZONE_DP = "gesture_dead_zone_dp"
     const val KEY_TAP_ACTION = "tap_action"
     const val KEY_SUPPRESS_STOCK_SHADE = "suppress_stock_shade"
+    const val KEY_SUPPRESSION_ARMED = "stock_shade_suppression_armed"
     const val KEY_VIBRATE_ON_TOUCH = "vibrate_on_touch"
     const val KEY_USE_DEVICE_HAPTICS = "use_device_haptics"
     const val KEY_AUTO_CLOSE_TILE = "auto_close_tile"
@@ -123,6 +127,8 @@ object PixelShadeConfig {
     fun hideHandleIcon(context: Context) = prefs(context).getBoolean(KEY_HIDE_HANDLE_ICON, false)
     fun hideInFullscreen(context: Context) = prefs(context).getBoolean(KEY_HIDE_IN_FULLSCREEN, false)
     fun hideInLandscape(context: Context) = prefs(context).getBoolean(KEY_HIDE_IN_LANDSCAPE, false)
+    fun triggersAllowedInCurrentConfiguration(context: Context): Boolean =
+        !(hideInLandscape(context) && context.resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE)
     fun hideWhenKeyboardOpen(context: Context) = prefs(context).getBoolean(KEY_HIDE_WHEN_KEYBOARD_OPEN, false)
     fun showOnLockScreen(context: Context) = prefs(context).getBoolean(KEY_SHOW_ON_LOCK_SCREEN, false)
 
@@ -133,6 +139,25 @@ object PixelShadeConfig {
     fun deadZoneDp(context: Context) = prefs(context).getFloat(KEY_GESTURE_DEAD_ZONE_DP, 24f)
     fun tapAction(context: Context) = prefs(context).getString(KEY_TAP_ACTION, "none") ?: "none"
     fun suppressStockShade(context: Context) = prefs(context).getBoolean(KEY_SUPPRESS_STOCK_SHADE, false)
+    fun suppressionArmed(context: Context) = prefs(context).getBoolean(KEY_SUPPRESSION_ARMED, false)
+    fun shouldSuppressStockShade(context: Context) =
+        suppressStockShade(context) && suppressionArmed(context)
+
+    /**
+     * Records explicit user consent for the privileged status-bar command.
+     * A separate armed bit prevents an older suppress_stock_shade=true value
+     * from disabling the shade before the new warning has been accepted.
+     */
+    fun armStockShadeSuppression(context: Context): Boolean = prefs(context).edit()
+        .putBoolean(KEY_SUPPRESS_STOCK_SHADE, true)
+        .putBoolean(KEY_SUPPRESSION_ARMED, true)
+        .commit()
+
+    /** Clear authorization synchronously before a restore command is queued. */
+    fun disarmStockShadeSuppression(context: Context): Boolean = prefs(context).edit()
+        .putBoolean(KEY_SUPPRESS_STOCK_SHADE, false)
+        .putBoolean(KEY_SUPPRESSION_ARMED, false)
+        .commit()
     fun vibrateOnTouch(context: Context) = prefs(context).getBoolean(KEY_VIBRATE_ON_TOUCH, true)
     fun useDeviceHaptics(context: Context) = prefs(context).getBoolean(KEY_USE_DEVICE_HAPTICS, true)
     fun autoCloseTile(context: Context) = prefs(context).getBoolean(KEY_AUTO_CLOSE_TILE, false)

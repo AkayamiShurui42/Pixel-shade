@@ -15,6 +15,7 @@ import android.os.Looper
 import android.provider.Settings
 import af.shizuku.Shizuku
 import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 
 object SystemActionController {
     private val executor = Executors.newSingleThreadExecutor { runnable ->
@@ -129,9 +130,12 @@ object SystemActionController {
             val ok = runCatching {
                 @Suppress("DEPRECATION")
                 val process = Shizuku.newProcess(args, null, null)
-                val code = process.waitFor()
-                runCatching { process.destroy() }
-                code == 0
+                try {
+                    val finished = process.waitForTimeout(5, TimeUnit.SECONDS)
+                    finished && process.exitValue() == 0
+                } finally {
+                    runCatching { process.destroy() }
+                }
             }.getOrDefault(false)
             main.post { callback(ok) }
         }

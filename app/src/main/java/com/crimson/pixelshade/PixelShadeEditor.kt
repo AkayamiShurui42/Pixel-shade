@@ -51,7 +51,6 @@ fun PixelShadeEditor(onClose: () -> Unit, onOpenTiles: () -> Unit) {
     var sensitivity by remember { mutableFloatStateOf(PixelShadeConfig.brightnessSensitivity(context)) }
     var reverse by remember { mutableStateOf(PixelShadeConfig.brightnessReverse(context)) }
     var deadZone by remember { mutableFloatStateOf(PixelShadeConfig.deadZoneDp(context)) }
-    var suppressStock by remember { mutableStateOf(PixelShadeConfig.suppressStockShade(context)) }
 
     var opacity by remember { mutableFloatStateOf(PixelShadeConfig.panelOpacity(context)) }
     var blur by remember { mutableFloatStateOf(PixelShadeConfig.blurRadius(context)) }
@@ -84,7 +83,6 @@ fun PixelShadeEditor(onClose: () -> Unit, onOpenTiles: () -> Unit) {
             .putFloat(PixelShadeConfig.KEY_BRIGHTNESS_SENSITIVITY, sensitivity)
             .putBoolean(PixelShadeConfig.KEY_BRIGHTNESS_REVERSE, reverse)
             .putFloat(PixelShadeConfig.KEY_GESTURE_DEAD_ZONE_DP, deadZone)
-            .putBoolean(PixelShadeConfig.KEY_SUPPRESS_STOCK_SHADE, suppressStock)
             .putFloat(PixelShadeConfig.KEY_PANEL_OPACITY, opacity)
             .putFloat(PixelShadeConfig.KEY_BLUR_RADIUS, blur)
             .putFloat(PixelShadeConfig.KEY_PANEL_CORNER_DP, panelCorner)
@@ -168,7 +166,7 @@ fun PixelShadeEditor(onClose: () -> Unit, onOpenTiles: () -> Unit) {
                         SettingSwitch("Reverse direction", null, reverse) { reverse = it; persist() }
                     }
                     SliderSetting("Gesture dead zone", deadZone, 4f..48f, "${deadZone.toInt()} dp") { deadZone = it; persist() }
-                    SettingSwitch("Block OxygenOS shade", "Only activates persistent blocking after Shizuku and a usable Pixel Shade trigger are ready; otherwise the stock shade stays available.", suppressStock) { suppressStock = it; persist() }
+                    Text("Stock-shade suppression is controlled from the main setup screen because it requires an explicit privileged-command warning.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
 
                 VisualSection("Appearance", Icons.Default.Palette) {
